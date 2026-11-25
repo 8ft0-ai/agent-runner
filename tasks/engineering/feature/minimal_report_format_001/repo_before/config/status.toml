@@ -1,0 +1,2 @@
+# Existing local settings; not required for CLI output formatting.
+refresh_seconds = 30

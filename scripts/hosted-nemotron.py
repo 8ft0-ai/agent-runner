@@ -1,0 +1,129 @@
+"""Run the synthetic report fixture on a GitHub-hosted Linux runner."""
+import base64
+import json
+import os
+import shutil
+import subprocess
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TASK = ROOT / "tasks/engineering/feature/minimal_report_format_001"
+MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+TEMP = Path(os.environ["RUNNER_TEMP"])
+WORK = TEMP / "fixture"
+EVIDENCE = TEMP / "evidence"
+GIT = TEMP / "baseline.git"
+
+
+def git(*args):
+    return subprocess.check_output(["git", "--git-dir", GIT, "--work-tree", WORK, *args], cwd=WORK)
+
+
+def main(record):
+    key = os.environ.pop("NVIDIA_API_KEY")
+    if not key:
+        raise ValueError("missing provider secret")
+    shutil.copytree(TASK / "repo_before", WORK)
+    shutil.copytree(TASK / "visible_tests", WORK / "visible_tests")
+    subprocess.run(["git", "init", "--bare", GIT], check=True)
+    git("add", "-f", ".")
+    git("-c", "user.name=pilot", "-c", "user.email=pilot@localhost", "commit", "-qm", "fixture")
+    config = {
+        "model": "pilot/" + MODEL, "small_model": "pilot/" + MODEL,
+        "agent": {"build": {"steps": 16}},
+        "enabled_providers": ["pilot"], "share": "disabled",
+        "permission": {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow",
+                       "edit": "allow", "external_directory": "deny"},
+        "provider": {"pilot": {"npm": "@ai-sdk/openai-compatible", "name": "NVIDIA",
+                               "options": {"baseURL": "https://integrate.api.nvidia.com/v1",
+                                           "apiKey": "{env:NVIDIA_API_KEY}"},
+                               "models": {MODEL: {"name": "Nemotron"}}}},
+    }
+    cli = TEMP / "cli/package/bin/opencode"
+    env = {**os.environ, "NVIDIA_API_KEY": key, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
+    cmd = ["docker", "run", "--rm", "--name", "nemotron-pilot", "--user",
+           f"{os.getuid()}:{os.getgid()}", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+           "--pids-limit=160", "--memory=4g", "--read-only", "--tmpfs", "/tmp:exec",
+           "-e", "HOME=/tmp", "-e", "OPENCODE_CONFIG_CONTENT", "-e", "NVIDIA_API_KEY",
+           "-v", f"{cli}:/usr/local/bin/opencode:ro", "-v", f"{WORK}:/task", "-w", "/task",
+           "ubuntu:24.04", "opencode", "run", "--format", "json", "--model", "pilot/" + MODEL,
+           (TASK / "instruction.md").read_text() + "\nIndependent tests run after your edits."]
+    tools = []
+    trace = []
+    usage = []
+    record["failure_category"] = "runner_or_provider"
+    with (TEMP / "raw-events").open("wb") as log:
+        try:
+            status = subprocess.run(cmd, env=env, stdout=log, stderr=log, timeout=600).returncode
+        except subprocess.TimeoutExpired:
+            subprocess.run(["docker", "rm", "-f", "nemotron-pilot"], capture_output=True)
+            status = 124
+    record["agent_exit"] = status
+    for line in (TEMP / "raw-events").open(errors="replace"):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        part = event.get("part", {})
+        if event.get("type") == "tool_use":
+            tool = part.get("tool")
+            if tool in {"read", "edit", "write", "apply_patch", "glob", "grep"}:
+                state = part.get("state", {}).get("status")
+                trace.append({"tool": tool, "completed": state == "completed"})
+                if state == "completed":
+                    tools.append(tool)
+        if event.get("type") == "error":
+            error = json.dumps(event.get("error", {})).lower()
+            record["provider_error"] = next((s for s in ("429", "401", "403", "rate limit", "timeout")
+                                             if s in error), "unclassified")
+        if part.get("type") == "step-finish":
+            usage.append({k: v for k, v in part.get("tokens", {}).items() if isinstance(v, int)})
+    (EVIDENCE / "trace.json").write_text(json.dumps(trace, indent=2))
+    record["usage_by_step"] = usage or None
+    git("add", "-f", ".")
+    changed = git("diff", "--cached", "--name-only", "-z", "HEAD").split(b"\0")[:-1]
+    patch = git("diff", "--cached", "--no-ext-diff", "--binary", "HEAD")
+    if len(patch) > 262144 or key.encode() in patch or base64.b64encode(key.encode()) in patch or b"nvapi-" in patch:
+        raise ValueError("patch withheld")
+    if not all(p.startswith(b"src/") for p in changed) or any(p.is_symlink() for p in WORK.rglob("*")):
+        record["failure_category"] = "scope"
+        return False
+    (EVIDENCE / "result.patch").write_bytes(patch)
+    checker = ROOT / "scripts/visible.py"
+    checks = {}
+    for group, test_command in [
+        ("text", ["-m", "unittest", "discover", "-s", "tests"]),
+        ("visible", ["/check.py"]),
+    ]:
+        result = subprocess.run(["docker", "run", "--rm", "--network=none", "--read-only",
+                                 "--cap-drop=ALL", "--pids-limit=64", "--memory=512m",
+                                 "--tmpfs", "/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
+                                 "-e", "PYTHONPATH=/task/src", "-v", f"{WORK}:/task:ro", "-v", f"{checker}:/check.py:ro",
+                                 "-w", "/task",
+                                 "python:3.11-slim", "python", *test_command], capture_output=True, timeout=90)
+        checks[group] = result.returncode
+    record["check_exit_codes"] = checks
+    ok = (status == 0 and "provider_error" not in record and bool(changed)
+          and "read" in tools and bool({"edit", "write", "apply_patch"}.intersection(tools))
+          and not any(checks.values()))
+    if tools and not ok and status == 0 and "provider_error" not in record:
+        record["failure_category"] = "agent"
+    return ok
+
+
+if __name__ == "__main__":
+    start = time.time()
+    result = {"source_revision": os.environ["GITHUB_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
+              "task": "feature.minimal_report_format_001", "agent": "OpenCode 1.2.15",
+              "requested_model": MODEL, "provider": "NVIDIA", "reported_model": None,
+              "human_interventions": 0, "actual_cost": None, "started_unix": start,
+              "failure_category": "harness", "passed": False}
+    try:
+        result["passed"] = main(result)
+        if result["passed"]:
+            result["failure_category"] = None
+    finally:
+        result["duration_seconds"] = round(time.time() - start, 2)
+        (EVIDENCE / "run.json").write_text(json.dumps(result, indent=2))
+    raise SystemExit(0 if result["passed"] else 1)
