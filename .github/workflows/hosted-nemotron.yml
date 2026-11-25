@@ -1,0 +1,34 @@
+name: Hosted Nemotron pilot
+on: workflow_dispatch
+permissions:
+  contents: read
+concurrency:
+  group: hosted-nemotron-pilot
+  cancel-in-progress: false
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned OpenCode
+        run: |
+          mkdir -p "$RUNNER_TEMP/cli" "$RUNNER_TEMP/evidence"
+          cd "$RUNNER_TEMP/cli"
+          curl -fsS https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.2.15.tgz -o cli.tgz
+          test "$(openssl dgst -sha512 -binary cli.tgz | openssl base64 -A)" = '8PaC+7nqfn3uZfxDeQhijCvEY61JekdJEyoulRrwlUc3xUgp5TOhqGQo7d8SoIAsYZSNaREYq4OLsfjiZm4YQw=='
+          tar xzf cli.tgz package/bin/opencode
+          test "$(package/bin/opencode --version)" = 1.2.15
+      - name: Run isolated task and check result
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: python3 scripts/hosted-nemotron.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: nemotron-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/evidence
+          retention-days: 5
+          if-no-files-found: error
