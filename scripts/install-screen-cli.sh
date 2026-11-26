@@ -32,7 +32,7 @@ case "$SCREEN_AGENT" in
             https://github.com/aaif-goose/goose/releases/download/v1.61.1/goose-x86_64-unknown-linux-gnu.tar.bz2 \
             -o "$archive"
         echo "34cd9a484a15564d3f462843359d24e4964ae328be3625024003d29f318e586c  $archive" | sha256sum -c -
-        tar -xjf "$archive" -C "$cli/bin" goose
+        tar -xjf "$archive" -C "$cli/bin" ./goose
         "$cli/bin/goose" --version | grep -Fx 'goose 1.61.1'
         ;;
     aider)
