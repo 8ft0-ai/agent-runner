@@ -7,6 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from run_diagnostics import collect_events
+
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = os.environ.get("PILOT_TASK") or "feature.minimal_report_format_001"
 TASKS = {
@@ -58,38 +60,24 @@ def main(record):
            "-v", f"{cli}:/usr/local/bin/opencode:ro", "-v", f"{WORK}:/task", "-w", "/task",
            "ubuntu:24.04", "opencode", "run", "--standalone", "--format", "json", "--model", "pilot/" + MODEL,
            (TASK / "instruction.md").read_text() + "\nIndependent tests run after your edits."]
-    tools = []
-    trace = []
-    usage = []
     record["failure_category"] = "runner_or_provider"
-    with (TEMP / "raw-events").open("wb") as log:
+    record["phase"] = "agent"
+    agent_start = time.monotonic()
+    raw_events = TEMP / "raw-events"
+    with raw_events.open("wb") as log:
         try:
             status = subprocess.run(cmd, env=env, stdout=log, stderr=log, timeout=600).returncode
         except subprocess.TimeoutExpired:
-            subprocess.run(["docker", "rm", "-f", "nemotron-pilot"], capture_output=True)
+            subprocess.run(["docker", "rm", "-f", "nemotron-pilot"], capture_output=True, timeout=20)
+            record["failure_category"] = "runner_timeout"
             status = 124
     record["agent_exit"] = status
-    for line in (TEMP / "raw-events").open(errors="replace"):
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        part = event.get("part", {})
-        if event.get("type") == "tool_use":
-            tool = part.get("tool")
-            if tool in {"read", "edit", "write", "apply_patch", "glob", "grep"}:
-                state = part.get("state", {}).get("status")
-                trace.append({"tool": tool, "completed": state == "completed"})
-                if state == "completed":
-                    tools.append(tool)
-        if event.get("type") == "error":
-            error = json.dumps(event.get("error", {})).lower()
-            record["provider_error"] = next((s for s in ("429", "401", "403", "rate limit", "timeout")
-                                             if s in error), "unclassified")
-        if part.get("type") == "step-finish":
-            usage.append({k: v for k, v in part.get("tokens", {}).items() if isinstance(v, int)})
+    record["agent_duration_seconds"] = round(time.monotonic() - agent_start, 2)
+    with raw_events.open(errors="replace") as events:
+        tools, trace = collect_events(events, record)
+    raw_events.unlink()
     (EVIDENCE / "trace.json").write_text(json.dumps(trace, indent=2))
-    record["usage_by_step"] = usage or None
+    record["phase"] = "patch"
     git("add", "-f", ".")
     changed = git("diff", "--cached", "--name-only", "-z", "HEAD").split(b"\0")[:-1]
     patch = git("diff", "--cached", "--no-ext-diff", "--binary", "HEAD")
@@ -100,7 +88,9 @@ def main(record):
         return False
     (EVIDENCE / "result.patch").write_bytes(patch)
     checker = ROOT / "scripts/visible.py"
+    record["phase"] = "public_checks"
     checks = {}
+    record["check_exit_codes"] = checks
     for group, test_command in [
         ("text" if TASK_ID.startswith("feature.") else "unit", ["-m", "unittest", "discover", "-s", "tests"]),
         ("visible", ["/check.py"]),
@@ -112,7 +102,7 @@ def main(record):
                                  "-w", "/task",
                                  "python:3.11-slim", "python", *test_command], capture_output=True, timeout=90)
         checks[group] = result.returncode
-    record["check_exit_codes"] = checks
+    record["phase"] = "complete"
     ok = (status == 0 and "provider_error" not in record and bool(changed)
           and "read" in tools and bool({"edit", "write", "apply_patch"}.intersection(tools))
           and not any(checks.values()))
@@ -127,7 +117,7 @@ if __name__ == "__main__":
               "task": TASK_ID, "agent": "OpenCode 2.4.2",
               "requested_model": MODEL, "provider": PROVIDER, "reported_model": None,
               "human_interventions": 0, "actual_cost": None, "started_unix": start,
-              "failure_category": "harness", "passed": False}
+              "failure_category": "harness", "phase": "setup", "passed": False}
     try:
         result["passed"] = main(result)
         if result["passed"]:
