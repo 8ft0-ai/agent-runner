@@ -9,3 +9,5 @@ Download the workflow artifact to inspect the patch, tool completion trace, publ
 For the OpenRouter comparison, configure the Actions secret `OPENROUTER_API_KEY` and select **OpenRouter** at dispatch. This selects the fixed model `nvidia/nemotron-3.5-super-vl:free` with the same agent, fixture and checks.
 
 Select `root_cause.relay_request_correlation_001` at dispatch to test a repair to the simulated relay. The private grader uses the corresponding fixture.
+
+The run record includes the OpenCode exit code and runtime, terminal error classification and HTTP status when supplied, retry-event count and latest retry, and the latest successful tool and its timestamp. The workflow reports its own deadline separately. The artifact includes tool summaries, public-check exit codes and the candidate patch when available. Raw model messages, tool payloads and provider response bodies stay out of the diagnostics.
