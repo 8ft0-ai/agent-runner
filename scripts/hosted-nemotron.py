@@ -9,7 +9,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK = ROOT / "tasks/engineering/feature/minimal_report_format_001"
-MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+PROVIDER = os.environ.get("PILOT_PROVIDER", "NVIDIA")
+ENDPOINT, MODEL = {
+    "NVIDIA": ("https://integrate.api.nvidia.com/v1", "nvidia/nemotron-3.5-super-vl-120b-a12b"),
+    "OpenRouter": ("https://openrouter.ai/api/v1", "nvidia/nemotron-3.5-super-vl:free"),
+}[PROVIDER]
 TEMP = Path(os.environ["RUNNER_TEMP"])
 WORK = TEMP / "fixture"
 EVIDENCE = TEMP / "evidence"
@@ -21,7 +25,7 @@ def git(*args):
 
 
 def main(record):
-    key = os.environ.pop("NVIDIA_API_KEY")
+    key = os.environ.pop("PILOT_API_KEY")
     if not key:
         raise ValueError("missing provider secret")
     shutil.copytree(TASK / "repo_before", WORK)
@@ -35,17 +39,17 @@ def main(record):
         "enabled_providers": ["pilot"], "share": "disabled",
         "permission": {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow",
                        "edit": "allow", "external_directory": "deny"},
-        "provider": {"pilot": {"npm": "@ai-sdk/openai-compatible", "name": "NVIDIA",
-                               "options": {"baseURL": "https://integrate.api.nvidia.com/v1",
-                                           "apiKey": "{env:NVIDIA_API_KEY}"},
+        "provider": {"pilot": {"npm": "@ai-sdk/openai-compatible", "name": PROVIDER,
+                               "options": {"baseURL": ENDPOINT,
+                                           "apiKey": "{env:PILOT_API_KEY}"},
                                "models": {MODEL: {"name": "Nemotron"}}}},
     }
     cli = TEMP / "cli/package/bin/opencode"
-    env = {**os.environ, "NVIDIA_API_KEY": key, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
+    env = {**os.environ, "PILOT_API_KEY": key, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
     cmd = ["docker", "run", "--rm", "--name", "nemotron-pilot", "--user",
            f"{os.getuid()}:{os.getgid()}", "--cap-drop=ALL", "--security-opt=no-new-privileges",
            "--pids-limit=160", "--memory=4g", "--read-only", "--tmpfs", "/tmp:exec",
-           "-e", "HOME=/tmp", "-e", "OPENCODE_CONFIG_CONTENT", "-e", "NVIDIA_API_KEY",
+           "-e", "HOME=/tmp", "-e", "OPENCODE_CONFIG_CONTENT", "-e", "PILOT_API_KEY",
            "-v", f"{cli}:/usr/local/bin/opencode:ro", "-v", f"{WORK}:/task", "-w", "/task",
            "ubuntu:24.04", "opencode", "run", "--format", "json", "--model", "pilot/" + MODEL,
            (TASK / "instruction.md").read_text() + "\nIndependent tests run after your edits."]
@@ -84,7 +88,7 @@ def main(record):
     git("add", "-f", ".")
     changed = git("diff", "--cached", "--name-only", "-z", "HEAD").split(b"\0")[:-1]
     patch = git("diff", "--cached", "--no-ext-diff", "--binary", "HEAD")
-    if len(patch) > 262144 or key.encode() in patch or base64.b64encode(key.encode()) in patch or b"nvapi-" in patch:
+    if len(patch) > 262144 or key.encode() in patch or base64.b64encode(key.encode()) in patch or any(prefix in patch for prefix in (b"nvapi-", b"sk-or-")):
         raise ValueError("patch withheld")
     if not all(p.startswith(b"src/") for p in changed) or any(p.is_symlink() for p in WORK.rglob("*")):
         record["failure_category"] = "scope"
@@ -116,7 +120,7 @@ if __name__ == "__main__":
     start = time.time()
     result = {"source_revision": os.environ["GITHUB_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
               "task": "feature.minimal_report_format_001", "agent": "OpenCode 1.2.15",
-              "requested_model": MODEL, "provider": "NVIDIA", "reported_model": None,
+              "requested_model": MODEL, "provider": PROVIDER, "reported_model": None,
               "human_interventions": 0, "actual_cost": None, "started_unix": start,
               "failure_category": "harness", "passed": False}
     try:
