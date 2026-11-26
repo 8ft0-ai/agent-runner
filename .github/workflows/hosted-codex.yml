@@ -1,0 +1,69 @@
+name: Hosted Codex relay comparison
+on:
+  pull_request:
+    paths:
+      - .github/workflows/hosted-codex.yml
+      - scripts/hosted-codex.py
+      - scripts/run_diagnostics.py
+      - tests/check_codex_runner.py
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Inference provider
+        type: choice
+        required: true
+        options: [OpenRouter, Groq]
+      mode:
+        description: Benchmark phase
+        type: choice
+        required: true
+        options: [probe, score]
+      groq_free_or_approved:
+        description: Groq credential is confirmed free or this run has expenditure approval
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: hosted-codex-relay
+  cancel-in-progress: false
+jobs:
+  relay:
+    if: github.event_name == 'pull_request' || inputs.provider != 'Groq' || inputs.groq_free_or_approved
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned Codex
+        run: |
+          if ! command -v bwrap >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y bubblewrap
+          fi
+          mkdir -p "$RUNNER_TEMP/codex" "$RUNNER_TEMP/evidence"
+          cd "$RUNNER_TEMP/codex"
+          curl -fsSL --max-time 90 https://github.com/openai/codex/releases/download/rust-v0.172.0/codex-x86_64-unknown-linux-musl.tar.gz -o codex.tgz
+          echo 'a2342a8f7f68f088be30620ccfe9cb84162c93a6b56177855961cda3ed6be392  codex.tgz' | sha256sum -c -
+          tar xzf codex.tgz codex-x86_64-unknown-linux-musl
+          echo 'ad83b94c093f0cdd8176a6bc8005a461bdf23a759863e157d40f562b8a9d664d  codex-x86_64-unknown-linux-musl' | sha256sum -c -
+          test "$(./codex-x86_64-unknown-linux-musl --version)" = 'codex-cli 0.172.0'
+      - name: Verify runner isolation and tool loop against a local mock
+        run: |
+          python3 -m unittest discover -s tests
+          python3 tests/check_codex_runner.py
+      - name: Run Codex on the selected provider
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PILOT_MODE: ${{ inputs.mode }}
+          PILOT_PROVIDER: ${{ inputs.provider }}
+          PILOT_API_KEY: ${{ secrets[inputs.provider == 'OpenRouter' && 'OPENROUTER_API_KEY' || inputs.provider == 'Groq' && 'GROQ_API_KEY' || ''] }}
+        run: python3 scripts/hosted-codex.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && github.event_name == 'workflow_dispatch'
+        with:
+          name: codex-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/evidence
+          retention-days: 5
+          if-no-files-found: warn
