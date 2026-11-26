@@ -6,9 +6,11 @@ import re
 import shutil
 import subprocess
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from threading import Timer
 
+from nvidia_responses import BASE_URL as NVIDIA_URL, MODEL as NVIDIA_MODEL, nvidia_bridge
 from run_diagnostics import collect_events, integer, object_or_empty
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,7 @@ FIXTURE_REVISION = "c7f87d835c0d7110118bd0e31655e6a223f2d735"
 CLI_NAME = "codex-x86_64-unknown-linux-musl"
 CLI_DIGEST = "ad83b94c093f0cdd8176a6bc8005a461bdf23a759863e157d40f562b8a9d664d"
 PROVIDERS = {
+    "NVIDIA": (NVIDIA_URL, NVIDIA_MODEL),
     "OpenRouter": ("https://openrouter.ai/api/v1", "nvidia/nemotron-3.5-super-vl:free"),
     "Groq": ("https://api.groq.com/openai/v1", "openai/gpt-oss-120b"),
 }
@@ -192,7 +195,9 @@ def execute(temp, evidence, key, record):
         git("-c", "user.name=pilot", "-c", "user.email=pilot@localhost", "commit", "-qm", "fixture")
         prompt = (TASK / "instruction.md").read_text() + "\nIndependent tests run after your edits."
     record["phase"] = "agent"
-    _, trace = run_codex(cli, work, endpoint, model, key, prompt, 90 if probe else 600, record)
+    route = nvidia_bridge(temp, key, record) if record["provider"] == "NVIDIA" else nullcontext((endpoint, key))
+    with route as (base_url, agent_key):
+        _, trace = run_codex(cli, work, base_url, model, agent_key, prompt, 90 if probe else 600, record)
     (evidence / "trace.json").write_text(json.dumps(trace, indent=2))
     clean = record["agent_exit"] == 0 and "provider_error" not in record
     record["clean_exit"] = clean

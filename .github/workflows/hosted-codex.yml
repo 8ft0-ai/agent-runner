@@ -4,6 +4,7 @@ on:
     paths:
       - .github/workflows/hosted-codex.yml
       - scripts/hosted-codex.py
+      - scripts/nvidia_responses.py
       - scripts/run_diagnostics.py
       - tests/check_codex_runner.py
       - tests/test_codex_score.py
@@ -13,7 +14,7 @@ on:
         description: Inference provider
         type: choice
         required: true
-        options: [OpenRouter, Groq]
+        options: [OpenRouter, Groq, NVIDIA]
       mode:
         description: Benchmark phase
         type: choice
@@ -51,7 +52,7 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/codex" "$RUNNER_TEMP/evidence"
           cd "$RUNNER_TEMP/codex"
-          curl -fsSL --max-time 90 https://github.com/openai/codex/releases/download/rust-v0.172.0/codex-x86_64-unknown-linux-musl.tar.gz -o codex.tgz
+          curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 --retry-max-time 150 https://github.com/openai/codex/releases/download/rust-v0.172.0/codex-x86_64-unknown-linux-musl.tar.gz -o codex.tgz
           echo 'a2342a8f7f68f088be30620ccfe9cb84162c93a6b56177855961cda3ed6be392  codex.tgz' | sha256sum -c -
           tar xzf codex.tgz codex-x86_64-unknown-linux-musl
           echo 'ad83b94c093f0cdd8176a6bc8005a461bdf23a759863e157d40f562b8a9d664d  codex-x86_64-unknown-linux-musl' | sha256sum -c -
@@ -60,12 +61,26 @@ jobs:
         run: |
           python3 -m unittest discover -s tests
           python3 tests/check_codex_runner.py
+      - name: Install verified NVIDIA bridge
+        if: github.event_name == 'workflow_dispatch' && inputs.provider == 'NVIDIA'
+        run: |
+          cd "$RUNNER_TEMP/codex"
+          curl -fsSL --connect-timeout 15 --max-time 30 --retry 1 https://raw.githubusercontent.com/NVIDIA/SkillEvaluator/4327960b90d1943d3f2df9ba023a454ee5aba07b/src/skillevaluator/tier3/harbor/nvidia_build_bridge.py -o nvidia_build_bridge.py
+          echo '4a7027910ae6f605581f45d1cc2df4df12d7a5f7a40b3e7d38c7c3065c903484  nvidia_build_bridge.py' | sha256sum -c -
+          patch -s -p1 <<'PATCH'
+          --- a/nvidia_build_bridge.py
+          +++ b/nvidia_build_bridge.py
+          @@ -1132,0 +1133,2 @@
+          +    else:
+          +        translated["max_tokens"] = max_output_tokens
+          PATCH
+          echo 'f39d803ae09e767798af5e4b8402622b761a8e2929c7cd30f9610a9b9c63f15d  nvidia_build_bridge.py' | sha256sum -c -
       - name: Run Codex on the selected provider
         if: github.event_name == 'workflow_dispatch'
         env:
           PILOT_MODE: ${{ inputs.mode }}
           PILOT_PROVIDER: ${{ inputs.provider }}
-          PILOT_API_KEY: ${{ secrets[inputs.provider == 'OpenRouter' && 'OPENROUTER_API_KEY' || inputs.provider == 'Groq' && 'GROQ_API_KEY' || ''] }}
+          PILOT_API_KEY: ${{ secrets[inputs.provider == 'OpenRouter' && 'OPENROUTER_API_KEY' || inputs.provider == 'Groq' && 'GROQ_API_KEY' || inputs.provider == 'NVIDIA' && 'NVIDIA_API_KEY' || ''] }}
         run: python3 scripts/hosted-codex.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always() && github.event_name == 'workflow_dispatch'
