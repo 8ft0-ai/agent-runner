@@ -9,3 +9,5 @@ Download the workflow artifact to inspect the patch, tool completion trace, publ
 For the OpenRouter comparison, configure the Actions secret `OPENROUTER_API_KEY` and select **OpenRouter** at dispatch. This selects the fixed model `nvidia/nemotron-3.5-super-vl:free` with the same agent, fixture and checks.
 
 Select `root_cause.relay_request_correlation_001` at dispatch to test a repair to the simulated relay. The private grader uses the corresponding fixture.
+
+For the Groq comparison, use a Free-plan organisation key in `GROQ_API_KEY`. Select **Groq** to run `openai/gpt-oss-120b` on the selected fixture.

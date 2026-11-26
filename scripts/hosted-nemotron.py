@@ -18,6 +18,7 @@ PROVIDER = os.environ.get("PILOT_PROVIDER", "NVIDIA")
 ENDPOINT, MODEL = {
     "NVIDIA": ("https://integrate.api.nvidia.com/v1", "nvidia/nemotron-3.5-super-vl-120b-a12b"),
     "OpenRouter": ("https://openrouter.ai/api/v1", "nvidia/nemotron-3.5-super-vl:free"),
+    "Groq": ("https://api.groq.com/openai/v1", "openai/gpt-oss-120b"),
 }[PROVIDER]
 TEMP = Path(os.environ["RUNNER_TEMP"])
 WORK = TEMP / "fixture"
@@ -47,7 +48,7 @@ def main(record):
         "provider": {"pilot": {"npm": "@ai-sdk/openai-compatible", "name": PROVIDER,
                                "options": {"baseURL": ENDPOINT,
                                            "apiKey": "{env:PILOT_API_KEY}"},
-                               "models": {MODEL: {"name": "Nemotron"}}}},
+                               "models": {MODEL: {"name": "GPT-OSS 120B" if PROVIDER == "Groq" else "Nemotron"}}}},
     }
     cli = TEMP / "cli/opencode"
     env = {**os.environ, "PILOT_API_KEY": key, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
@@ -93,7 +94,7 @@ def main(record):
     git("add", "-f", ".")
     changed = git("diff", "--cached", "--name-only", "-z", "HEAD").split(b"\0")[:-1]
     patch = git("diff", "--cached", "--no-ext-diff", "--binary", "HEAD")
-    if len(patch) > 262144 or key.encode() in patch or base64.b64encode(key.encode()) in patch or any(prefix in patch for prefix in (b"nvapi-", b"sk-or-")):
+    if len(patch) > 262144 or key.encode() in patch or base64.b64encode(key.encode()) in patch or any(prefix in patch for prefix in (b"nvapi-", b"sk-or-", b"gsk_")):
         raise ValueError("patch withheld")
     if not all(p.startswith(b"src/") for p in changed) or any(p.is_symlink() for p in WORK.rglob("*")):
         record["failure_category"] = "scope"
