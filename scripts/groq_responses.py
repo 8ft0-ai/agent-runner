@@ -39,6 +39,17 @@ def sequential_groq(key, evidence):
                 self.send_error(400)
                 return
             request["parallel_tool_calls"] = False
+            # These Codex extensions affect client telemetry, caching and
+            # display. Groq's Responses request contract does not list them.
+            request.pop("client_metadata", None)
+            request.pop("prompt_cache_key", None)
+            if request.get("include") == ["reasoning.encrypted_content"]:
+                request.pop("include")
+            reasoning = request.get("reasoning")
+            if isinstance(reasoning, dict):
+                reasoning.pop("summary", None)
+                if not reasoning:
+                    request.pop("reasoning")
             entry = {}
             evidence.append(entry)
             connection = http.client.HTTPSConnection("api.groq.com", timeout=38)
