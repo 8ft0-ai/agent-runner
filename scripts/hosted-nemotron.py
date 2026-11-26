@@ -1,4 +1,4 @@
-"""Run the synthetic report fixture on a GitHub-hosted Linux runner."""
+"""Run a selected synthetic fixture on a GitHub-hosted Linux runner."""
 import base64
 import json
 import os
@@ -8,7 +8,12 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TASK = ROOT / "tasks/engineering/feature/minimal_report_format_001"
+TASK_ID = os.environ.get("PILOT_TASK") or "feature.minimal_report_format_001"
+TASKS = {
+    "feature.minimal_report_format_001": "feature/minimal_report_format_001",
+    "root_cause.relay_request_correlation_001": "root_cause/relay_request_correlation_001",
+}
+TASK = ROOT / "tasks/engineering" / TASKS[TASK_ID]
 PROVIDER = os.environ.get("PILOT_PROVIDER", "NVIDIA")
 ENDPOINT, MODEL = {
     "NVIDIA": ("https://integrate.api.nvidia.com/v1", "nvidia/nemotron-3.5-super-vl-120b-a12b"),
@@ -97,7 +102,7 @@ def main(record):
     checker = ROOT / "scripts/visible.py"
     checks = {}
     for group, test_command in [
-        ("text", ["-m", "unittest", "discover", "-s", "tests"]),
+        ("text" if TASK_ID.startswith("feature.") else "unit", ["-m", "unittest", "discover", "-s", "tests"]),
         ("visible", ["/check.py"]),
     ]:
         result = subprocess.run(["docker", "run", "--rm", "--network=none", "--read-only",
@@ -119,7 +124,7 @@ def main(record):
 if __name__ == "__main__":
     start = time.time()
     result = {"source_revision": os.environ["GITHUB_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
-              "task": "feature.minimal_report_format_001", "agent": "OpenCode 2.4.2",
+              "task": TASK_ID, "agent": "OpenCode 2.4.2",
               "requested_model": MODEL, "provider": PROVIDER, "reported_model": None,
               "human_interventions": 0, "actual_cost": None, "started_unix": start,
               "failure_category": "harness", "passed": False}

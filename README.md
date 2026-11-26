@@ -7,3 +7,5 @@ Configure the repository Actions secret `NVIDIA_API_KEY` for the free NVIDIA end
 Download the workflow artifact to inspect the patch, tool completion trace, public test exit codes and run metadata. Final benchmark acceptance requires independent private grading against the matching starter revision.
 
 For the OpenRouter comparison, configure the Actions secret `OPENROUTER_API_KEY` and select **OpenRouter** at dispatch. This selects the fixed model `nvidia/nemotron-3.5-super-vl:free` with the same agent, fixture and checks.
+
+Select `root_cause.relay_request_correlation_001` at dispatch to test a repair to the simulated relay. The private grader uses the corresponding fixture.

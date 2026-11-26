@@ -1,0 +1,6 @@
+2026-11-25T02:01:00Z INFO register session=s-001 request=call-001
+2026-11-25T02:01:00Z WARN provider title_generation status=429 request=title-009
+2026-11-25T02:01:01Z INFO register session=s-001 request=call-002
+2026-11-25T02:01:02Z ERROR unknown_response request=call-001
+2026-11-25T02:01:02Z INFO receive session=s-001 request=call-002
+2026-11-25T02:01:02Z WARN provider_retry_disabled unchanged=true
