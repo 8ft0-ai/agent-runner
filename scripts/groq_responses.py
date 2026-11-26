@@ -5,8 +5,7 @@ import json
 import secrets
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
-from time import sleep
+from threading import Event, Thread
 
 MODEL = "openai/gpt-oss-120b"
 FIELDS = ("parallel_tool_calls", "reasoning.encrypted_content", "prompt_cache_key",
@@ -16,6 +15,7 @@ FIELDS = ("parallel_tool_calls", "reasoning.encrypted_content", "prompt_cache_ke
 @contextmanager
 def sequential_groq(key, evidence, *, retry_wait_budget=120):
     token = secrets.token_urlsafe(32)
+    closed = Event()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -79,7 +79,8 @@ def sequential_groq(key, evidence, *, retry_wait_budget=120):
                             retry_wait_budget -= wait
                             entry["retry_wait_seconds"] = wait
                             connection.close()
-                            sleep(wait)
+                            if closed.wait(wait):
+                                return
                             continue
                     self.send_response(result.status)
                     self.send_header("Content-Type", "application/json")
@@ -89,8 +90,19 @@ def sequential_groq(key, evidence, *, retry_wait_budget=120):
                 self.send_response(result.status)
                 self.send_header("Content-Type", result.getheader("Content-Type", "application/json"))
                 self.end_headers()
+                # Inspect only SSE event labels, never tool arguments or payloads.
+                previous = b""
                 while chunk := result.read1(65536):
                     self.wfile.write(chunk)
+                    lines = (previous + chunk).split(b"\n")
+                    previous = lines.pop()[:256]
+                    for line in lines:
+                        label = line.removeprefix(b"event: ").strip()
+                        if label in (b"response.completed", b"response.incomplete", b"response.failed",
+                                     b"error", b"response.output_item.done"):
+                            entry["last_sse_event"] = label.decode("ascii")
+                            if label in (b"response.completed", b"response.incomplete", b"response.failed", b"error"):
+                                entry["terminal_sse_event"] = label.decode("ascii")
             except (OSError, http.client.HTTPException) as error:
                 entry["transport_error"] = type(error).__name__
                 if "http_status" not in entry:
@@ -104,5 +116,6 @@ def sequential_groq(key, evidence, *, retry_wait_budget=120):
         try:
             yield f"http://127.0.0.1:{server.server_port}/v1", token
         finally:
+            closed.set()
             server.shutdown()
             worker.join()

@@ -77,6 +77,18 @@ def codex_events(lines):
             message = event.get("message") or object_or_empty(event.get("error")).get("message")
             if not isinstance(message, str):
                 continue
+            lowered = message.lower()
+            signatures = (
+                ("stream disconnected before completion", "stream_ended_early"),
+                ("stream closed", "stream_closed"),
+                ("tool call", "tool_call_error"),
+                ("invalid json", "invalid_json"),
+            )
+            if kind == "turn.failed":
+                for fragment, label in signatures:
+                    if fragment in lowered:
+                        yield {"type": "diagnostic_hint", "label": label}
+                        break
             status = HTTP_ERROR.search(message)
             retry = re.match(r"Reconnecting\.\.\. (\d+)/\d+", message)
             yield {"type": "retry" if retry else "error", "timestamp": timestamp,
@@ -133,8 +145,14 @@ def run_codex(cli, work, endpoint, model, key, prompt, seconds, record, *, stder
                 proc.stdin.close()
             except BrokenPipeError:
                 pass
-            translated = (json.dumps(event) for event in codex_events(proc.stdout))
-            tools, trace = collect_events(translated, record)
+            def translated():
+                for event in codex_events(proc.stdout):
+                    if event.get("type") == "diagnostic_hint":
+                        record["codex_error_hint"] = event["label"]
+                    else:
+                        yield json.dumps(event)
+
+            tools, trace = collect_events(translated(), record)
             status = proc.wait()
         finally:
             timer.cancel()

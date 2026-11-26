@@ -42,7 +42,8 @@ class GroqResponsesTests(unittest.TestCase):
     def test_retries_once_after_provider_rate_limit(self):
         payload = json.dumps({"model": MODEL, "input": "probe"}).encode()
         evidence = []
-        with patch("groq_responses.http.client.HTTPSConnection") as upstream, patch("groq_responses.sleep") as wait:
+        with patch("groq_responses.http.client.HTTPSConnection") as upstream, patch("groq_responses.Event") as event:
+            event.return_value.wait.return_value = False
             connection = upstream.return_value
             first = connection.getresponse.return_value
             first.status = 429
@@ -54,7 +55,7 @@ class GroqResponsesTests(unittest.TestCase):
                     urllib.request.urlopen(request, timeout=2)
                 self.assertEqual(error.exception.code, 429)
                 error.exception.close()
-            wait.assert_called_once_with(23)
+            event.return_value.wait.assert_called_once_with(23)
             self.assertEqual(connection.request.call_count, 2)
             self.assertEqual(evidence[0]["retry_wait_seconds"], 23)
             self.assertEqual(evidence[1]["http_status"], 429)
