@@ -28,7 +28,7 @@ case "$SCREEN_AGENT" in
         ;;
     goose)
         archive="$RUNNER_TEMP/goose.tar.bz2"
-        curl -fsSL --max-time 90 \
+        curl -fsSL --connect-timeout 15 --max-time 75 --retry 2 --retry-all-errors --retry-max-time 240 \
             https://github.com/aaif-goose/goose/releases/download/v1.61.1/goose-x86_64-unknown-linux-gnu.tar.bz2 \
             -o "$archive"
         echo "34cd9a484a15564d3f462843359d24e4964ae328be3625024003d29f318e586c  $archive" | sha256sum -c -
