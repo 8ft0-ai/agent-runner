@@ -38,3 +38,23 @@ class GroqResponsesTests(unittest.TestCase):
             })
             self.assertEqual(headers["Authorization"], "Bearer upstream-key")
             self.assertEqual(evidence, [{"http_status": 200}])
+
+    def test_retries_once_after_provider_rate_limit(self):
+        payload = json.dumps({"model": MODEL, "input": "probe"}).encode()
+        evidence = []
+        with patch("groq_responses.http.client.HTTPSConnection") as upstream, patch("groq_responses.sleep") as wait:
+            connection = upstream.return_value
+            first = connection.getresponse.return_value
+            first.status = 429
+            first.read.return_value = b"rate limited"
+            first.getheader.return_value = "22"
+            with sequential_groq("upstream-key", evidence) as (base, token):
+                request = urllib.request.Request(base + "/responses", payload, {"Authorization": "Bearer " + token})
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(request, timeout=2)
+                self.assertEqual(error.exception.code, 429)
+                error.exception.close()
+            wait.assert_called_once_with(23)
+            self.assertEqual(connection.request.call_count, 2)
+            self.assertEqual(evidence[0]["retry_wait_seconds"], 23)
+            self.assertEqual(evidence[1]["http_status"], 429)

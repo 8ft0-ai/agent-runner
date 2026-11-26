@@ -6,6 +6,7 @@ import secrets
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
+from time import sleep
 
 MODEL = "openai/gpt-oss-120b"
 FIELDS = ("parallel_tool_calls", "reasoning.encrypted_content", "prompt_cache_key",
@@ -13,7 +14,7 @@ FIELDS = ("parallel_tool_calls", "reasoning.encrypted_content", "prompt_cache_ke
 
 
 @contextmanager
-def sequential_groq(key, evidence):
+def sequential_groq(key, evidence, *, retry_wait_budget=120):
     token = secrets.token_urlsafe(32)
 
     class Handler(BaseHTTPRequestHandler):
@@ -50,22 +51,36 @@ def sequential_groq(key, evidence):
                 reasoning.pop("summary", None)
                 if not reasoning:
                     request.pop("reasoning")
-            entry = {}
-            evidence.append(entry)
+            nonlocal retry_wait_budget
+            body = json.dumps(request)
             connection = http.client.HTTPSConnection("api.groq.com", timeout=38)
             try:
-                connection.request("POST", "/openai/v1/responses", json.dumps(request), {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {key}",
-                })
-                result = connection.getresponse()
-                entry["http_status"] = result.status
-                if result.status >= 400:
-                    body = result.read(16_384)
-                    entry["mentioned_fields"] = [field for field in FIELDS if field.encode() in body]
-                    retry_after = result.getheader("Retry-After", "")
-                    if retry_after.isascii() and retry_after.isdecimal() and len(retry_after) <= 6:
-                        entry["retry_after_seconds"] = int(retry_after)
+                for attempt in range(2):
+                    entry = {}
+                    evidence.append(entry)
+                    connection.request("POST", "/openai/v1/responses", body, {
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {key}",
+                    })
+                    result = connection.getresponse()
+                    entry["http_status"] = result.status
+                    if result.status < 400:
+                        break
+                    error_body = result.read(16_384)
+                    entry["mentioned_fields"] = [field for field in FIELDS if field.encode() in error_body]
+                    retry_header = result.getheader("Retry-After", "")
+                    delay = (int(retry_header) if retry_header.isascii() and retry_header.isdecimal()
+                             and len(retry_header) <= 6 else None)
+                    if delay is not None:
+                        entry["retry_after_seconds"] = delay
+                    if result.status == 429 and attempt == 0 and delay is not None and 0 < delay <= 60:
+                        wait = delay + 1
+                        if wait <= retry_wait_budget:
+                            retry_wait_budget -= wait
+                            entry["retry_wait_seconds"] = wait
+                            connection.close()
+                            sleep(wait)
+                            continue
                     self.send_response(result.status)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
