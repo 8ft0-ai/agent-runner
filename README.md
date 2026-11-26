@@ -36,3 +36,20 @@ Codex shell command labels are inferred. Tool timestamps are observed by the
 harness. Served model and cost are left unknown when absent from the CLI
 event stream. The independent private grader determines final correctness and
 patch scope.
+
+## Compatibility screening
+
+[OpenCode Eval #87](https://github.com/8ft0-ai/opencode-eval/issues/87)
+uses the **Hosted Nemotron pilot** dispatch with `screen_agent` set to
+`qwen`, `goose`, `pi` or `aider`. Start with NVIDIA. Use OpenRouter
+only as a separate, explicitly selected free-route attempt. Run one candidate
+at a time. The default `none` runs the existing OpenCode pilot.
+
+Each agent gets a generated identifier, a placeholder answer and a read-only
+`probe-check` test. Aider receives the input as read-only context and runs the
+test through its configured automatic test hook. The Linux namespace has no
+external network access. A fixed-route relay limits inference to the selected
+model, keeps its credential outside the namespace and caps upstream requests.
+The job records exit status, the test success marker observed in agent output,
+a separate test replay, and categorical provider evidence. Raw agent output
+and credentials are excluded from the artifact.

@@ -10,6 +10,11 @@ on:
         options:
           - feature.minimal_report_format_001
           - root_cause.relay_request_correlation_001
+      screen_agent:
+        description: Optional read–edit–test compatibility screen
+        type: choice
+        default: none
+        options: [none, qwen, goose, pi, aider]
       provider:
         description: Inference provider
         type: choice
@@ -25,6 +30,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   pilot:
+    if: inputs.screen_agent == 'none' || inputs.screen_agent == ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -52,3 +58,33 @@ jobs:
           path: ${{ runner.temp }}/evidence
           retention-days: 5
           if-no-files-found: error
+  screen:
+    if: inputs.screen_agent != 'none' && inputs.screen_agent != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
+        if: inputs.screen_agent == 'qwen' || inputs.screen_agent == 'pi'
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install pinned screening candidate
+        env:
+          SCREEN_AGENT: ${{ inputs.screen_agent }}
+        run: bash scripts/install-screen-cli.sh
+      - name: Run isolated read–edit–test probe
+        env:
+          SCREEN_AGENT: ${{ inputs.screen_agent }}
+          PILOT_PROVIDER: ${{ inputs.provider }}
+          PILOT_API_KEY: ${{ secrets[inputs.provider == 'OpenRouter' && 'OPENROUTER_API_KEY' || 'NVIDIA_API_KEY'] }}
+        run: python3 scripts/hosted-screen.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: screen-${{ inputs.screen_agent }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/evidence
+          retention-days: 5
+          if-no-files-found: warn
