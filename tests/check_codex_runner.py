@@ -31,6 +31,7 @@ class ResponsesHandler(BaseHTTPRequestHandler):
             credential_path = "/proc/[0-9]*/environ"
             command = (
                 'test -z "${PILOT_API_KEY:-}" && '
+                'test -r /proc/self/environ && '
                 f'! grep -asq {SENTINEL} {credential_path} && '
                 f'! curl -s --max-time 1 http://127.0.0.1:{port}/ && cat input.txt'
             )

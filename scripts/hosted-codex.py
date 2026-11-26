@@ -109,7 +109,7 @@ def run_codex(cli, work, endpoint, model, key, prompt, seconds, record, *, stder
         "model_providers.benchmark.stream_max_retries": 0,
         "model_providers.benchmark.stream_idle_timeout_ms": 30_000,
         "sandbox_workspace_write.network_access": False,
-        "shell_environment_policy.include_only": ["PATH", "HOME", "LANG"],
+        "shell_environment_policy.include_only": ["PATH", "HOME", "LANG", "PYTHONDONTWRITEBYTECODE"],
         "analytics.enabled": False,
         "feedback.enabled": False,
         "web_search": "disabled",
@@ -118,7 +118,7 @@ def run_codex(cli, work, endpoint, model, key, prompt, seconds, record, *, stder
         command.extend(["-c", f"{name}={json.dumps(value)}"])
     command.append("-")
     env = {"PATH": "/usr/bin:/bin", "HOME": "/tmp", "CODEX_HOME": "/codex-home",
-           "LANG": "C.UTF-8", "PILOT_API_KEY": key}
+           "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "PILOT_API_KEY": key}
     start = time.monotonic()
     # Stream JSONL through the allowlist without saving raw event bodies.
     with subprocess.Popen(command, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -177,6 +177,7 @@ def execute(temp, evidence, key, record):
         prompt = PROBE_PROMPT
     else:
         shutil.copytree(TASK / "repo_before", work)
+        # Include the public checks in the baseline before any agent edits.
         shutil.copytree(TASK / "visible_tests", work / "visible_tests")
         baseline = temp / "baseline.git"
 

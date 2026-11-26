@@ -6,6 +6,7 @@ on:
       - scripts/hosted-codex.py
       - scripts/run_diagnostics.py
       - tests/check_codex_runner.py
+      - tests/test_codex_score.py
   workflow_dispatch:
     inputs:
       provider:
