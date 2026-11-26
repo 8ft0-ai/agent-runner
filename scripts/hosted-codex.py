@@ -6,9 +6,11 @@ import re
 import shutil
 import subprocess
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from threading import Timer
 
+from groq_responses import sequential_groq
 from run_diagnostics import collect_events, integer, object_or_empty
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -192,7 +194,10 @@ def execute(temp, evidence, key, record):
         git("-c", "user.name=pilot", "-c", "user.email=pilot@localhost", "commit", "-qm", "fixture")
         prompt = (TASK / "instruction.md").read_text() + "\nIndependent tests run after your edits."
     record["phase"] = "agent"
-    _, trace = run_codex(cli, work, endpoint, model, key, prompt, 90 if probe else 600, record)
+    route = (sequential_groq(key, record.setdefault("groq_upstream", []))
+             if record["provider"] == "Groq" else nullcontext((endpoint, key)))
+    with route as (base_url, agent_key):
+        _, trace = run_codex(cli, work, base_url, model, agent_key, prompt, 90 if probe else 600, record)
     (evidence / "trace.json").write_text(json.dumps(trace, indent=2))
     clean = record["agent_exit"] == 0 and "provider_error" not in record
     record["clean_exit"] = clean
