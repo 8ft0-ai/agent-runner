@@ -38,7 +38,7 @@ case "$SCREEN_AGENT" in
     aider)
         /usr/bin/python3 -m venv --copies "$cli/aider"
         "$cli/aider/bin/python" -m pip install --disable-pip-version-check 'aider-chat==0.86.2'
-        "$cli/aider/bin/python" -m aider --version | grep -Fx 'aider 0.86.2'
+        "$cli/aider/bin/aider" --version | grep -Fx 'aider 0.86.2'
         ;;
     *)
         exit 2
