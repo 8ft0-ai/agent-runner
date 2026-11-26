@@ -44,14 +44,14 @@ def main(record):
                                            "apiKey": "{env:PILOT_API_KEY}"},
                                "models": {MODEL: {"name": "Nemotron"}}}},
     }
-    cli = TEMP / "cli/package/bin/opencode"
+    cli = TEMP / "cli/opencode"
     env = {**os.environ, "PILOT_API_KEY": key, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
     cmd = ["docker", "run", "--rm", "--name", "nemotron-pilot", "--user",
            f"{os.getuid()}:{os.getgid()}", "--cap-drop=ALL", "--security-opt=no-new-privileges",
            "--pids-limit=160", "--memory=4g", "--read-only", "--tmpfs", "/tmp:exec",
            "-e", "HOME=/tmp", "-e", "OPENCODE_CONFIG_CONTENT", "-e", "PILOT_API_KEY",
            "-v", f"{cli}:/usr/local/bin/opencode:ro", "-v", f"{WORK}:/task", "-w", "/task",
-           "ubuntu:24.04", "opencode", "run", "--format", "json", "--model", "pilot/" + MODEL,
+           "ubuntu:24.04", "opencode", "run", "--standalone", "--format", "json", "--model", "pilot/" + MODEL,
            (TASK / "instruction.md").read_text() + "\nIndependent tests run after your edits."]
     tools = []
     trace = []
@@ -119,7 +119,7 @@ def main(record):
 if __name__ == "__main__":
     start = time.time()
     result = {"source_revision": os.environ["GITHUB_SHA"], "run_id": os.environ["GITHUB_RUN_ID"],
-              "task": "feature.minimal_report_format_001", "agent": "OpenCode 1.2.15",
+              "task": "feature.minimal_report_format_001", "agent": "OpenCode 2.4.2",
               "requested_model": MODEL, "provider": PROVIDER, "reported_model": None,
               "human_interventions": 0, "actual_cost": None, "started_unix": start,
               "failure_category": "harness", "passed": False}

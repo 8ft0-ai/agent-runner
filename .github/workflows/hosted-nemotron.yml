@@ -27,10 +27,10 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/cli" "$RUNNER_TEMP/evidence"
           cd "$RUNNER_TEMP/cli"
-          curl -fsS https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.2.15.tgz -o cli.tgz
-          test "$(openssl dgst -sha512 -binary cli.tgz | openssl base64 -A)" = '8PaC+7nqfn3uZfxDeQhijCvEY61JekdJEyoulRrwlUc3xUgp5TOhqGQo7d8SoIAsYZSNaREYq4OLsfjiZm4YQw=='
-          tar xzf cli.tgz package/bin/opencode
-          test "$(package/bin/opencode --version)" = 1.2.15
+          curl -fsSL https://github.com/anomalyco/opencode/releases/download/v2.4.2/opencode-linux-x64.tar.gz -o cli.tgz
+          echo '452912288f934d1771bd5bd0d8611ba3a6adc3db3ac3333c37facf373770ba66  cli.tgz' | sha256sum -c -
+          tar xzf cli.tgz opencode
+          test "$(./opencode --version)" = 'opencode v2.4.2'
       - name: Run isolated task and check result
         env:
           PILOT_PROVIDER: ${{ inputs.provider }}
