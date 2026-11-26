@@ -2,6 +2,14 @@ name: Hosted Nemotron pilot
 on:
   workflow_dispatch:
     inputs:
+      task:
+        description: Synthetic benchmark fixture
+        type: choice
+        required: true
+        default: feature.minimal_report_format_001
+        options:
+          - feature.minimal_report_format_001
+          - root_cause.relay_request_correlation_001
       provider:
         description: Inference provider
         type: choice
@@ -33,6 +41,7 @@ jobs:
           test "$(./opencode --version)" = 'opencode v2.4.2'
       - name: Run isolated task and check result
         env:
+          PILOT_TASK: ${{ inputs.task }}
           PILOT_PROVIDER: ${{ inputs.provider }}
           PILOT_API_KEY: ${{ secrets[inputs.provider == 'OpenRouter' && 'OPENROUTER_API_KEY' || 'NVIDIA_API_KEY'] }}
         run: python3 scripts/hosted-nemotron.py
