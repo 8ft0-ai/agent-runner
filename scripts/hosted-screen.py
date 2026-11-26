@@ -139,7 +139,7 @@ def configure(agent, model, settings):
         command = ["goose", "run", "--no-session", "--with-builtin", "developer",
                    "--output-format", "stream-json", "--text", PROMPT]
     elif agent == "pi":
-        env["PI_CODING_AGENT_DIR"] = "/tmp/home/pi"
+        env.update(PI_CODING_AGENT_DIR="/tmp/home/pi", PI_TELEMETRY="0")
         (settings / "pi").mkdir()
         (settings / "pi/models.json").write_text(json.dumps({"providers": {"screen": {
             "baseUrl": BASE_URL + "/v1", "api": "openai-completions", "apiKey": "OPENAI_API_KEY",
@@ -217,8 +217,9 @@ def run_fixture(root, cli, agent, provider, key, evidence, record):
         "model_configuration": rb"no models available|model not found|unknown model",
         "sandbox_setup": rb"bwrap:|socat.*E ",
         "cli_missing": rb"not found|No such file or directory",
-    }.items() if re.search(pattern, output, re.I)), None)
-    record["clean_exit"] = exit_code == 0 and record["agent_error"] is None
+    }.items() if not record["upstream_requests"] and re.search(pattern, output, re.I)), None)
+    record["clean_exit"] = (exit_code == 0 and bool(record["provider_statuses"])
+                            and record["provider_statuses"][-1] == 200)
     answer = work / "answer.txt"
     source = work / "input.txt"
     in_scope = (sorted(p.name for p in work.iterdir()) == ["answer.txt", "input.txt"]
