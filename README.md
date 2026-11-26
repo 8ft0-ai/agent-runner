@@ -5,3 +5,5 @@ A manual GitHub Actions experiment runs OpenCode 1.2.15 against NVIDIA Nemotron 
 Configure the repository Actions secret `NVIDIA_API_KEY` for the free NVIDIA endpoint. After the workflow is reviewed and merged, select **Actions → Hosted Nemotron pilot → Run workflow**. Each dispatch runs one task with a 20-minute job limit.
 
 Download the workflow artifact to inspect the patch, tool completion trace, public test exit codes and run metadata. Final benchmark acceptance requires independent private grading against the matching starter revision.
+
+For the OpenRouter comparison, configure the Actions secret `OPENROUTER_API_KEY` and select **OpenRouter** at dispatch. This selects the fixed model `nvidia/nemotron-3.5-super-vl:free` with the same agent, fixture and checks.

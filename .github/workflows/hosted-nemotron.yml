@@ -1,5 +1,15 @@
 name: Hosted Nemotron pilot
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Inference provider
+        type: choice
+        required: true
+        default: NVIDIA
+        options:
+          - NVIDIA
+          - OpenRouter
 permissions:
   contents: read
 concurrency:
@@ -23,7 +33,8 @@ jobs:
           test "$(package/bin/opencode --version)" = 1.2.15
       - name: Run isolated task and check result
         env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          PILOT_PROVIDER: ${{ inputs.provider }}
+          PILOT_API_KEY: ${{ secrets[inputs.provider == 'OpenRouter' && 'OPENROUTER_API_KEY' || 'NVIDIA_API_KEY'] }}
         run: python3 scripts/hosted-nemotron.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
