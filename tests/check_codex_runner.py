@@ -75,7 +75,7 @@ def main():
         record = {}
         try:
             tools, _ = runner.run_codex(cli, work, f"http://127.0.0.1:{api.server_port}/v1",
-                                        MODEL, SENTINEL, runner.PROBE_PROMPT, 30, record)
+                                        MODEL, SENTINEL, runner.PROBE_PROMPT, 30, record, stderr=None)
         finally:
             api.shutdown()
             thread.join()

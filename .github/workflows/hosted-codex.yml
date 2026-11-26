@@ -42,6 +42,12 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y bubblewrap
           fi
+          # Ubuntu 24.04 restricts namespaces required by both sandbox layers.
+          # This setting is scoped to the disposable GitHub-hosted VM.
+          if ! bwrap --unshare-net --ro-bind / / -- /bin/true; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            bwrap --unshare-net --ro-bind / / -- /bin/true
+          fi
           mkdir -p "$RUNNER_TEMP/codex" "$RUNNER_TEMP/evidence"
           cd "$RUNNER_TEMP/codex"
           curl -fsSL --max-time 90 https://github.com/openai/codex/releases/download/rust-v0.172.0/codex-x86_64-unknown-linux-musl.tar.gz -o codex.tgz

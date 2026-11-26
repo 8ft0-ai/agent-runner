@@ -83,7 +83,7 @@ def codex_events(lines):
                              "message": message}}
 
 
-def run_codex(cli, work, endpoint, model, key, prompt, seconds, record):
+def run_codex(cli, work, endpoint, model, key, prompt, seconds, record, *, stderr=subprocess.DEVNULL):
     # The outer namespace exposes only the fixture, Ubuntu runtime and DNS/CA files.
     # Codex then sandboxes agent shell commands with network disabled.
     command = [
@@ -122,7 +122,7 @@ def run_codex(cli, work, endpoint, model, key, prompt, seconds, record):
     start = time.monotonic()
     # Stream JSONL through the allowlist without saving raw event bodies.
     with subprocess.Popen(command, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                          stderr=subprocess.DEVNULL, text=True, errors="replace") as proc:
+                          stderr=stderr, text=True, errors="replace") as proc:
         timer = Timer(seconds, proc.kill)
         timer.start()
         try:
