@@ -33,7 +33,9 @@ case "$SCREEN_AGENT" in
             -o "$archive"
         echo "34cd9a484a15564d3f462843359d24e4964ae328be3625024003d29f318e586c  $archive" | sha256sum -c -
         tar -xjf "$archive" -C "$cli/bin" ./goose
-        "$cli/bin/goose" --version | grep -Fx 'goose 1.61.1'
+        goose_version=$("$cli/bin/goose" --version)
+        printf '%s\n' "$goose_version"
+        grep -Eq '(^|[[:space:]])1\.61\.1([[:space:]]|$)' <<< "$goose_version"
         ;;
     aider)
         /usr/bin/python3 -m venv --copies "$cli/aider"
