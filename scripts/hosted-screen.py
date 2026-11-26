@@ -164,6 +164,7 @@ def sandbox(work, cli, settings, *mounts):
         "bwrap", "--die-with-parent", "--unshare-all",
         "--ro-bind", "/usr", "/usr", "--symlink", "usr/bin", "/bin",
         "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
+        "--ro-bind", "/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-certificates.crt",
         "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", "/tmp/home",
         "--ro-bind", str(cli), "/cli", "--ro-bind", str(settings), "/settings",
         "--bind", str(work), "/task", *mounts, "--chdir", "/task",
