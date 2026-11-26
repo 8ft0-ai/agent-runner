@@ -4,6 +4,7 @@ on:
     paths:
       - .github/workflows/hosted-codex.yml
       - scripts/hosted-codex.py
+      - scripts/groq_responses.py
       - scripts/run_diagnostics.py
       - tests/check_codex_runner.py
       - tests/test_codex_score.py
@@ -51,7 +52,7 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/codex" "$RUNNER_TEMP/evidence"
           cd "$RUNNER_TEMP/codex"
-          curl -fsSL --max-time 90 https://github.com/openai/codex/releases/download/rust-v0.172.0/codex-x86_64-unknown-linux-musl.tar.gz -o codex.tgz
+          curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 --retry-max-time 150 https://github.com/openai/codex/releases/download/rust-v0.172.0/codex-x86_64-unknown-linux-musl.tar.gz -o codex.tgz
           echo 'a2342a8f7f68f088be30620ccfe9cb84162c93a6b56177855961cda3ed6be392  codex.tgz' | sha256sum -c -
           tar xzf codex.tgz codex-x86_64-unknown-linux-musl
           echo 'ad83b94c093f0cdd8176a6bc8005a461bdf23a759863e157d40f562b8a9d664d  codex-x86_64-unknown-linux-musl' | sha256sum -c -

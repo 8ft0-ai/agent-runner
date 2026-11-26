@@ -6,9 +6,11 @@ import re
 import shutil
 import subprocess
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from threading import Timer
 
+from groq_responses import sequential_groq
 from run_diagnostics import collect_events, integer, object_or_empty
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +77,18 @@ def codex_events(lines):
             message = event.get("message") or object_or_empty(event.get("error")).get("message")
             if not isinstance(message, str):
                 continue
+            lowered = message.lower()
+            signatures = (
+                ("stream disconnected before completion", "stream_ended_early"),
+                ("stream closed", "stream_closed"),
+                ("tool call", "tool_call_error"),
+                ("invalid json", "invalid_json"),
+            )
+            if kind == "turn.failed":
+                for fragment, label in signatures:
+                    if fragment in lowered:
+                        yield {"type": "diagnostic_hint", "label": label}
+                        break
             status = HTTP_ERROR.search(message)
             retry = re.match(r"Reconnecting\.\.\. (\d+)/\d+", message)
             yield {"type": "retry" if retry else "error", "timestamp": timestamp,
@@ -107,7 +121,7 @@ def run_codex(cli, work, endpoint, model, key, prompt, seconds, record, *, stder
         "model_providers.benchmark.wire_api": "responses",
         "model_providers.benchmark.request_max_retries": 0,
         "model_providers.benchmark.stream_max_retries": 0,
-        "model_providers.benchmark.stream_idle_timeout_ms": 30_000,
+        "model_providers.benchmark.stream_idle_timeout_ms": 105_000 if record.get("provider") == "Groq" else 30_000,
         "sandbox_workspace_write.network_access": False,
         "shell_environment_policy.include_only": ["PATH", "HOME", "LANG", "PYTHONDONTWRITEBYTECODE"],
         "analytics.enabled": False,
@@ -131,8 +145,14 @@ def run_codex(cli, work, endpoint, model, key, prompt, seconds, record, *, stder
                 proc.stdin.close()
             except BrokenPipeError:
                 pass
-            translated = (json.dumps(event) for event in codex_events(proc.stdout))
-            tools, trace = collect_events(translated, record)
+            def translated():
+                for event in codex_events(proc.stdout):
+                    if event.get("type") == "diagnostic_hint":
+                        record["codex_error_hint"] = event["label"]
+                    else:
+                        yield json.dumps(event)
+
+            tools, trace = collect_events(translated(), record)
             status = proc.wait()
         finally:
             timer.cancel()
@@ -192,7 +212,12 @@ def execute(temp, evidence, key, record):
         git("-c", "user.name=pilot", "-c", "user.email=pilot@localhost", "commit", "-qm", "fixture")
         prompt = (TASK / "instruction.md").read_text() + "\nIndependent tests run after your edits."
     record["phase"] = "agent"
-    _, trace = run_codex(cli, work, endpoint, model, key, prompt, 90 if probe else 600, record)
+    route = (sequential_groq(key, record.setdefault("groq_upstream", []),
+                             retry_wait_budget=120 if probe else 240)
+             if record["provider"] == "Groq" else nullcontext((endpoint, key)))
+    probe_seconds = 150 if record["provider"] == "Groq" else 90
+    with route as (base_url, agent_key):
+        _, trace = run_codex(cli, work, base_url, model, agent_key, prompt, probe_seconds if probe else 600, record)
     (evidence / "trace.json").write_text(json.dumps(trace, indent=2))
     clean = record["agent_exit"] == 0 and "provider_error" not in record
     record["clean_exit"] = clean
