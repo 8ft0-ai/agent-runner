@@ -23,6 +23,8 @@ TASK_ID = "root_cause.relay_request_correlation_001"
 TASKS = {
     "root_cause.relay_request_correlation_001": "root_cause/relay_request_correlation_001",
     "feature.minimal_report_format_001": "feature/minimal_report_format_001",
+    "review.unsigned_observer_token_001": "review/unsigned_observer_token_001",
+    "recovery.stale_handover_001": "recovery/stale_handover_001",
     "root_cause.incremental_catalog_refresh_001": "root_cause/incremental_catalog_refresh_001",
 }
 FIXTURE_REVISION = "c7f87d835c0d7110118bd0e31655e6a223f2d735"
@@ -423,6 +425,8 @@ def main():
         "requested_model": ROUTES[provider][2], "adapter": "fixed-route Chat Completions relay",
         "run_id": os.environ["GITHUB_RUN_ID"], "source_revision": os.environ["GITHUB_SHA"],
         "retries": None, "actual_cost": None, "passed": False,
+        "human_interventions": 0, "tool_calls": None,
+        "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "mode": "score" if score else "probe",
     }
     if agent in {"claude", "codex"}:
