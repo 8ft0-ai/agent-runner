@@ -10,6 +10,8 @@ on:
         options:
           - feature.minimal_report_format_001
           - root_cause.relay_request_correlation_001
+          - review.unsigned_observer_token_001
+          - recovery.stale_handover_001
           - root_cause.incremental_catalog_refresh_001
       screen_agent:
         description: Optional read–edit–test compatibility screen

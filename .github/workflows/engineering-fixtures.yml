@@ -1,0 +1,22 @@
+name: Engineering fixture integrity
+on:
+  pull_request:
+    paths:
+      - 'tasks/engineering/**'
+      - 'scripts/hosted-screen.py'
+      - '.github/workflows/hosted-nemotron.yml'
+      - '.github/workflows/engineering-fixtures.yml'
+      - 'tests/test_engineering_pack.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify four frozen task snapshots and no-op controls
+        run: python3 -m unittest discover -s tests -p test_engineering_pack.py -v
