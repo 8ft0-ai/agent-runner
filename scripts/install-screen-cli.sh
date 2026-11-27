@@ -74,7 +74,9 @@ case "$SCREEN_AGENT" in
     copilot)
         npm install --ignore-scripts --no-audit --no-fund --prefix "$cli" @github/copilot-linux-x64@1.0.116
         ln -s ../node_modules/@github/copilot-linux-x64/copilot "$cli/bin/copilot"
-        "$cli/bin/copilot" --version | grep -E '1\.0\.116([[:space:]]|$)'
+        node -e 'if (require(process.argv[1]).version !== "1.0.116") process.exit(1)' \
+            "$cli/node_modules/@github/copilot-linux-x64/package.json"
+        NO_COLOR=1 "$cli/bin/copilot" --version
         ;;
     mini)
         /usr/bin/python3 -m venv --copies "$cli/mini"
