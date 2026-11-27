@@ -46,6 +46,10 @@ case "$SCREEN_AGENT" in
         npm install --ignore-scripts --no-audit --no-fund --prefix "$cli" "$package"
         install "$(command -v node)" "$cli/bin/node"
         ln -s "../node_modules/.bin/$executable" "$cli/bin/$executable"
+        if [[ "$SCREEN_AGENT" == claude ]]; then
+            # Populate the CLI shim from the pinned platform package without running other lifecycle hooks.
+            node "$cli/node_modules/@anthropic-ai/claude-code/install.cjs"
+        fi
         "$cli/bin/$executable" --version
         ;;
     opencode)
