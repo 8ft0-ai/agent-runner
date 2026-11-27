@@ -1,0 +1,15 @@
+{
+  "replay_count": 0,
+  "receipts": [
+    {
+      "step": "sync-model",
+      "status": "done",
+      "receipt_id": "r-sync-001"
+    },
+    {
+      "step": "validate-report",
+      "status": "done",
+      "receipt_id": "r-report-001"
+    }
+  ]
+}
