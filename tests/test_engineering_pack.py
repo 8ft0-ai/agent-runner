@@ -97,6 +97,25 @@ class EngineeringPackContract(unittest.TestCase):
             self.assertEqual(mapping[ident], relative)
             self.assertIn("          - " + ident + "\n", workflow)
 
+    def test_pilot_workflow_task_choices_match_runner(self):
+        """Every workflow task choice must resolve to an existing pilot fixture."""
+        source = (ROOT / "scripts/hosted-nemotron.py").read_text()
+        mapping = next(ast.literal_eval(node.value) for node in ast.parse(source).body
+                       if isinstance(node, ast.Assign) and any(
+                           isinstance(t, ast.Name) and t.id == "TASKS" for t in node.targets))
+        workflow = (ROOT / ".github/workflows/hosted-nemotron.yml").read_text()
+        task_choices = {
+            line.removeprefix("          - ").strip()
+            for line in workflow.split("      screen_agent:", 1)[0].splitlines()
+            if line.startswith("          - ")
+        }
+        self.assertTrue(task_choices)
+        self.assertEqual(set(mapping), task_choices)
+        for ident, relative in mapping.items():
+            with self.subTest(task=ident):
+                self.assertEqual(relative, ident.replace(".", "/", 1))
+                self.assertTrue((ROOT / "tasks/engineering" / relative / "instruction.md").is_file())
+
     def test_all_four_noop_visible_checks_fail(self):
         for ident, relative in TASKS.items():
             with self.subTest(task=ident), tempfile.TemporaryDirectory() as tmp:

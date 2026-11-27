@@ -14,6 +14,8 @@ TASK_ID = os.environ.get("PILOT_TASK") or "feature.minimal_report_format_001"
 TASKS = {
     "feature.minimal_report_format_001": "feature/minimal_report_format_001",
     "root_cause.relay_request_correlation_001": "root_cause/relay_request_correlation_001",
+    "review.unsigned_observer_token_001": "review/unsigned_observer_token_001",
+    "recovery.stale_handover_001": "recovery/stale_handover_001",
     "root_cause.incremental_catalog_refresh_001": "root_cause/incremental_catalog_refresh_001",
 }
 TASK = ROOT / "tasks/engineering" / TASKS[TASK_ID]

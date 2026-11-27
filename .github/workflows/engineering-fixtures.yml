@@ -4,6 +4,7 @@ on:
     paths:
       - 'tasks/engineering/**'
       - 'scripts/hosted-screen.py'
+      - 'scripts/hosted-nemotron.py'
       - '.github/workflows/hosted-nemotron.yml'
       - '.github/workflows/engineering-fixtures.yml'
       - 'tests/test_engineering_pack.py'
