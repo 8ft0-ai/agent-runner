@@ -31,12 +31,23 @@ FIXTURE_REVISION = "c7f87d835c0d7110118bd0e31655e6a223f2d735"
 FIXTURE_REVISIONS = {
     "root_cause.incremental_catalog_refresh_001": "ef7ba31d3f0117bdba3375d4be29afb11f5b98b2",
 }
-ROUTES = {
-    "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
-               "nvidia/nemotron-3.5-super-vl-120b-a12b"),
-    "OpenRouter": ("openrouter.ai", "/api/v1/chat/completions",
-                   "nvidia/nemotron-3.5-super-vl:free"),
+# Fixed free-prototype profiles. Never accept a model ID supplied by an agent.
+MODEL_PROFILES = {
+    "super": {
+        "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
+                   "nvidia/nemotron-3.5-super-vl-120b-a12b"),
+        "OpenRouter": ("openrouter.ai", "/api/v1/chat/completions",
+                       "nvidia/nemotron-3.5-super-vl:free"),
+    },
+    "lightning": {
+        "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
+                   "nvidia/nemotron-3.5-lightning-30b-a3b"),
+    },
 }
+PROFILE = os.environ.get("PILOT_MODEL_PROFILE", "super")
+if PROFILE not in MODEL_PROFILES:
+    raise ValueError("unsupported fixed model profile")
+ROUTES = MODEL_PROFILES[PROFILE]
 VERSIONS = {
     "qwen": "0.28.6", "goose": "1.61.1", "pi": "1.6.1", "aider": "0.86.2",
     "cline": "3.0.76", "continue": "1.5.47", "claude": "2.1.332",
@@ -419,10 +430,13 @@ def main():
     agent, provider = os.environ["SCREEN_AGENT"], os.environ["PILOT_PROVIDER"]
     score = os.environ.get("SCREEN_PHASE") == "score"
     key = os.environ.pop("PILOT_API_KEY", "")
+    selected_route = ROUTES.get(provider)
     record = {
         "agent": agent, "version": VERSIONS[agent], "provider": provider,
-        "endpoint": "https://" + "".join(ROUTES[provider][:2]),
-        "requested_model": ROUTES[provider][2], "adapter": "fixed-route Chat Completions relay",
+        "model_profile": PROFILE,
+        "endpoint": "https://" + "".join(selected_route[:2]) if selected_route else None,
+        "requested_model": selected_route[2] if selected_route else None,
+        "adapter": "fixed-route Chat Completions relay",
         "run_id": os.environ["GITHUB_RUN_ID"], "source_revision": os.environ["GITHUB_SHA"],
         "retries": None, "actual_cost": None, "passed": False,
         "human_interventions": 0, "tool_calls": None,
@@ -433,6 +447,8 @@ def main():
         record["adapter"] = ("SkillEvaluator Messages-to-Chat-Completions + fixed relay" if agent == "claude"
                              else "SkillEvaluator Responses-to-Chat-Completions + fixed relay")
     try:
+        if selected_route is None:
+            raise ValueError("unsupported model/provider combination")
         if not key:
             raise ValueError("missing selected credential")
         if score:

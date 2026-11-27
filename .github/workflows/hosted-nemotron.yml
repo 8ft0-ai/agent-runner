@@ -23,6 +23,11 @@ on:
         type: choice
         default: probe
         options: [probe, score]
+      screen_model:
+        description: Fixed model profile for optional agent screen (NVIDIA Lightning requires NVIDIA)
+        type: choice
+        default: super
+        options: [super, lightning]
       provider:
         description: Inference provider
         type: choice
@@ -87,6 +92,7 @@ jobs:
         env:
           SCREEN_AGENT: ${{ inputs.screen_agent }}
           SCREEN_PHASE: ${{ inputs.screen_phase }}
+          PILOT_MODEL_PROFILE: ${{ inputs.screen_model }}
           SCREEN_TASK: ${{ inputs.task }}
           PILOT_PROVIDER: ${{ inputs.provider }}
           PILOT_API_KEY: ${{ secrets[inputs.provider == 'OpenRouter' && 'OPENROUTER_API_KEY' || 'NVIDIA_API_KEY'] }}
