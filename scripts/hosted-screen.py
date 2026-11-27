@@ -376,6 +376,8 @@ def run_score(root, cli, agent, provider, key, evidence, record):
     prompt = (task / "instruction.md").read_text() + "\nIndependent tests run after your edits."
     run_agent(root, work, settings, cli, agent, provider, key, record, prompt, task)
 
+    # Keep Python compilation artefacts out of candidate patches. The agent has no Git index.
+    git("clean", "-f", "-x", "--", ":(glob)**/__pycache__/*.pyc")
     entries = list(work.rglob("*"))
     if any(p.is_symlink() or ".git" in p.relative_to(work).parts or
            (not p.is_dir() and (not p.is_file() or p.stat().st_nlink != 1 or
@@ -390,7 +392,11 @@ def run_score(root, cli, agent, provider, key, evidence, record):
         record["patch_withheld"] = "non_source_changes"
         return False
     patch = git("diff", "--cached", "--no-ext-diff", "--text", "HEAD")
-    patch.decode("utf-8")
+    try:
+        patch.decode("utf-8")
+    except UnicodeDecodeError:
+        record["patch_withheld"] = "non_utf8_patch"
+        return False
     if b"\0" in patch or len(patch) > 262144 or any(marker in patch for marker in (
         key.encode(), base64.b64encode(key.encode()), b"nvapi-", b"sk-or-", b"github_pat_",
     )):
