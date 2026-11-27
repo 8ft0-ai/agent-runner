@@ -26,10 +26,18 @@ TASKS = {
     "review.unsigned_observer_token_001": "review/unsigned_observer_token_001",
     "recovery.stale_handover_001": "recovery/stale_handover_001",
     "root_cause.incremental_catalog_refresh_001": "root_cause/incremental_catalog_refresh_001",
+    "diagnostics.ci_failure_investigation_001": "diagnostics/ci_failure_investigation_001",
+    "refactor.backwards_compatible_api_001": "refactor/backwards_compatible_api_001",
+    "security.auth_boundary_repair_001": "security/auth_boundary_repair_001",
+    "performance.incremental_regression_001": "performance/incremental_regression_001",
 }
 FIXTURE_REVISION = "c7f87d835c0d7110118bd0e31655e6a223f2d735"
 FIXTURE_REVISIONS = {
     "root_cause.incremental_catalog_refresh_001": "ef7ba31d3f0117bdba3375d4be29afb11f5b98b2",
+    "diagnostics.ci_failure_investigation_001": "405aa5d0d2552834980a01f147a8ef792994ee26",
+    "refactor.backwards_compatible_api_001": "405aa5d0d2552834980a01f147a8ef792994ee26",
+    "security.auth_boundary_repair_001": "405aa5d0d2552834980a01f147a8ef792994ee26",
+    "performance.incremental_regression_001": "405aa5d0d2552834980a01f147a8ef792994ee26",
 }
 # Fixed free-prototype profiles. Never accept a model ID supplied by an agent.
 MODEL_PROFILES = {
@@ -386,7 +394,7 @@ def run_score(root, cli, agent, provider, key, evidence, record):
 
     git("add", "-f", ".")
     git("-c", "user.name=pilot", "-c", "user.email=pilot@localhost", "commit", "-qm", "fixture")
-    prompt = (task / "instruction.md").read_text() + "\nIndependent tests run after your edits."
+    prompt = (task / "instruction.md").read_text()
     run_agent(root, work, settings, cli, agent, provider, key, record, prompt, task)
 
     # Keep Python compilation artefacts out of candidate patches. The agent has no Git index.

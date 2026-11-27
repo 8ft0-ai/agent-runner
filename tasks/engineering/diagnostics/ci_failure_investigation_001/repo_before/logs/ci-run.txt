@@ -1,0 +1,12 @@
+2026-11-26T09:14:07Z checkout: revision 2a9e4a1, changed: src/api_client/transport.py
+2026-11-26T09:14:08Z matrix: client-unit, api-contract, api-unit
+2026-11-26T09:14:08Z runner: Python 3.13.16, Linux hosted; cache restored
+2026-11-26T09:14:09Z client-unit: PASS (41 tests)
+2026-11-26T09:14:09Z api-contract: FAIL (unexpected selection for unchanged src/api/)
+2026-11-26T09:14:10Z api-unit: PASS (20 tests)
+2026-11-26T09:14:11Z warning: cache uploader HTTP 502, non-blocking post-job action
+2026-11-26T09:14:12Z warning: isolated network fixture has historic flaky-test label
+2026-11-26T09:14:14Z retry #1: same matrix and same api-contract failure (fixture inputs unchanged)
+2026-11-26T09:14:15Z retry #2: same matrix and same api-contract failure (fixture inputs unchanged)
+2026-11-26T09:14:16Z note: newer optional runner image available
+2026-11-26T09:14:16Z final: FAIL, deterministic unexpected check selection

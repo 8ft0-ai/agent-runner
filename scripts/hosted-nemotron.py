@@ -17,6 +17,10 @@ TASKS = {
     "review.unsigned_observer_token_001": "review/unsigned_observer_token_001",
     "recovery.stale_handover_001": "recovery/stale_handover_001",
     "root_cause.incremental_catalog_refresh_001": "root_cause/incremental_catalog_refresh_001",
+    "diagnostics.ci_failure_investigation_001": "diagnostics/ci_failure_investigation_001",
+    "refactor.backwards_compatible_api_001": "refactor/backwards_compatible_api_001",
+    "security.auth_boundary_repair_001": "security/auth_boundary_repair_001",
+    "performance.incremental_regression_001": "performance/incremental_regression_001",
 }
 TASK = ROOT / "tasks/engineering" / TASKS[TASK_ID]
 PROVIDER = os.environ.get("PILOT_PROVIDER", "NVIDIA")

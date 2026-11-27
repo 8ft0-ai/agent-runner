@@ -1,0 +1,7 @@
+# Synthetic matrix description; do not alter this to fix selection.
+required_checks:
+  - api-contract
+  - api-unit
+  - client-unit
+  - worker-unit
+  - docs-lint
