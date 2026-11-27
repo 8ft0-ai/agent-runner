@@ -10,6 +10,11 @@ case "$BENCHMARK_AGENT" in
     cline)
         cline auth -p openai -k local-relay -m "$BENCHMARK_MODEL" -b "$OPENAI_BASE_URL"
         ;;
+    mini)
+        "$@"
+        # mini can exit 0 after exhausting its task limit. Require explicit submission.
+        exec python3 -c 'import json, sys; record = json.load(open("/tmp/mini-trajectory.json")); sys.exit(record["info"]["exit_status"] != "Submitted")'
+        ;;
     claude|codex)
         python3 /settings/start-bridge.py &
         bridge_pid=$!

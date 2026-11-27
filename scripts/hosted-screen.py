@@ -23,8 +23,12 @@ TASK_ID = "root_cause.relay_request_correlation_001"
 TASKS = {
     "root_cause.relay_request_correlation_001": "root_cause/relay_request_correlation_001",
     "feature.minimal_report_format_001": "feature/minimal_report_format_001",
+    "root_cause.incremental_catalog_refresh_001": "root_cause/incremental_catalog_refresh_001",
 }
 FIXTURE_REVISION = "c7f87d835c0d7110118bd0e31655e6a223f2d735"
+FIXTURE_REVISIONS = {
+    "root_cause.incremental_catalog_refresh_001": "ef7ba31d3f0117bdba3375d4be29afb11f5b98b2",
+}
 ROUTES = {
     "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
                "nvidia/nemotron-3.5-super-vl-120b-a12b"),
@@ -34,7 +38,7 @@ ROUTES = {
 VERSIONS = {
     "qwen": "0.28.6", "goose": "1.61.1", "pi": "1.6.1", "aider": "0.86.2",
     "cline": "3.0.76", "continue": "1.5.47", "claude": "2.1.332",
-    "opencode": "2.4.2", "codex": "0.172.0",
+    "opencode": "2.4.2", "codex": "0.172.0", "copilot": "1.0.116", "mini": "2.4.6",
 }
 PROMPT = (
     "Read input.txt for a generated identifier. Edit only answer.txt, replacing its "
@@ -185,6 +189,24 @@ def configure(agent, model, settings, prompt, task):
         command = ["claude", "--bare", "--model", model, "--permission-mode", "bypassPermissions",
                    "--strict-mcp-config", "--tools", "Read,Write,Edit,Glob,Grep,Bash",
                    "--verbose", "--output-format", "stream-json", "-p", prompt]
+    elif agent == "copilot":
+        env.update(
+            COPILOT_OFFLINE="true", COPILOT_PROVIDER_TYPE="openai",
+            COPILOT_PROVIDER_BASE_URL=BASE_URL + "/v1", COPILOT_PROVIDER_API_KEY="local-relay",
+            COPILOT_PROVIDER_WIRE_API="completions", COPILOT_MODEL=model,
+        )
+        command = ["copilot", "--no-auto-update", "--disable-builtin-mcps",
+                   "--disable-mcp-server", "computer-use", "--no-ask-user",
+                   "--allow-all-tools", "--output-format", "json", "-p", prompt]
+    elif agent == "mini":
+        env.update(MSWEA_CONFIGURED="1", MSWEA_SILENT_STARTUP="1",
+                   MSWEA_COST_TRACKING="ignore_errors", LITELLM_LOCAL_MODEL_COST_MAP="True")
+        config = {"agent": {"step_limit": 16},
+                  "model": {"model_kwargs": {"api_base": BASE_URL + "/v1", "num_retries": 0}}}
+        (settings / "mini.yaml").write_text(json.dumps(config))
+        command = ["/cli/mini/bin/python", "-m", "minisweagent.run.mini", "-m", "openai/" + model,
+                   "-c", "mini.yaml", "-c", "/settings/mini.yaml", "-y", "--exit-immediately",
+                   "-o", "/tmp/mini-trajectory.json", "-t", prompt]
     elif agent == "opencode":
         env.update(
             OPENCODE_DISABLE_MODELS_FETCH="true", OPENCODE_DISABLE_AUTOUPDATE="true",
@@ -354,6 +376,8 @@ def run_score(root, cli, agent, provider, key, evidence, record):
     prompt = (task / "instruction.md").read_text() + "\nIndependent tests run after your edits."
     run_agent(root, work, settings, cli, agent, provider, key, record, prompt, task)
 
+    # Keep Python compilation artefacts out of candidate patches. The agent has no Git index.
+    git("clean", "-f", "-x", "--", ":(glob)**/__pycache__/*.pyc")
     entries = list(work.rglob("*"))
     if any(p.is_symlink() or ".git" in p.relative_to(work).parts or
            (not p.is_dir() and (not p.is_file() or p.stat().st_nlink != 1 or
@@ -368,7 +392,11 @@ def run_score(root, cli, agent, provider, key, evidence, record):
         record["patch_withheld"] = "non_source_changes"
         return False
     patch = git("diff", "--cached", "--no-ext-diff", "--text", "HEAD")
-    patch.decode("utf-8")
+    try:
+        patch.decode("utf-8")
+    except UnicodeDecodeError:
+        record["patch_withheld"] = "non_utf8_patch"
+        return False
     if b"\0" in patch or len(patch) > 262144 or any(marker in patch for marker in (
         key.encode(), base64.b64encode(key.encode()), b"nvapi-", b"sk-or-", b"github_pat_",
     )):
@@ -409,7 +437,7 @@ def main():
             task_id = os.environ.get("SCREEN_TASK") or TASK_ID
             if task_id not in TASKS:
                 raise ValueError("unknown scored fixture")
-            record.update(task=task_id, fixture_revision=FIXTURE_REVISION)
+            record.update(task=task_id, fixture_revision=FIXTURE_REVISIONS.get(task_id, FIXTURE_REVISION))
         run = run_score if score else run_fixture
         with tempfile.TemporaryDirectory(prefix="screen-", dir=temp) as directory:
             record["passed"] = run(Path(directory), temp / "cli", agent, provider,

@@ -71,6 +71,18 @@ case "$SCREEN_AGENT" in
         mv "$cli/bin/codex-x86_64-unknown-linux-musl" "$cli/bin/codex"
         test "$("$cli/bin/codex" --version)" = 'codex-cli 0.172.0'
         ;;
+    copilot)
+        npm install --ignore-scripts --no-audit --no-fund --prefix "$cli" @github/copilot-linux-x64@1.0.116
+        ln -s ../node_modules/@github/copilot-linux-x64/copilot "$cli/bin/copilot"
+        node -e 'if (require(process.argv[1]).version !== "1.0.116") process.exit(1)' \
+            "$cli/node_modules/@github/copilot-linux-x64/package.json"
+        NO_COLOR=1 "$cli/bin/copilot" --version
+        ;;
+    mini)
+        /usr/bin/python3 -m venv --copies "$cli/mini"
+        "$cli/mini/bin/python" -m pip install --disable-pip-version-check 'mini-swe-agent==2.4.6'
+        MSWEA_SILENT_STARTUP=1 "$cli/mini/bin/python" -c 'from importlib.metadata import version; assert version("mini-swe-agent") == "2.4.6"'
+        ;;
     aider)
         /usr/bin/python3 -m venv --copies "$cli/aider"
         "$cli/aider/bin/python" -m pip install --disable-pip-version-check 'aider-chat==0.86.2'
