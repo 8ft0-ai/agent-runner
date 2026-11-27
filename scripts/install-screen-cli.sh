@@ -37,20 +37,20 @@ case "$SCREEN_AGENT" in
         printf '%s\n' "$goose_version"
         grep -Eq '(^|[[:space:]])1\.61\.1([[:space:]]|$)' <<< "$goose_version"
         ;;
-    cline|continue|claude)
+    cline|continue)
         case "$SCREEN_AGENT" in
             cline) package=cline@3.0.76; executable=cline ;;
             continue) package=@continuedev/cli@1.5.47; executable=cn ;;
-            claude) package=@anthropic-ai/claude-code@2.1.332; executable=claude ;;
         esac
         npm install --ignore-scripts --no-audit --no-fund --prefix "$cli" "$package"
         install "$(command -v node)" "$cli/bin/node"
         ln -s "../node_modules/.bin/$executable" "$cli/bin/$executable"
-        if [[ "$SCREEN_AGENT" == claude ]]; then
-            # Populate the CLI shim from the pinned platform package without running other lifecycle hooks.
-            node "$cli/node_modules/@anthropic-ai/claude-code/install.cjs"
-        fi
         "$cli/bin/$executable" --version
+        ;;
+    claude)
+        npm install --ignore-scripts --no-audit --no-fund --prefix "$cli" @anthropic-ai/claude-code-linux-x64@2.1.332
+        ln -s ../node_modules/@anthropic-ai/claude-code-linux-x64/claude "$cli/bin/claude"
+        "$cli/bin/claude" --version | grep -E '^2\.1\.332([[:space:]]|$)'
         ;;
     opencode)
         archive="$RUNNER_TEMP/opencode.tgz"
