@@ -10,11 +10,12 @@ on:
         options:
           - feature.minimal_report_format_001
           - root_cause.relay_request_correlation_001
+          - root_cause.incremental_catalog_refresh_001
       screen_agent:
         description: Optional read–edit–test compatibility screen
         type: choice
         default: none
-        options: [none, qwen, goose, pi, aider, cline, continue, claude, opencode, codex]
+        options: [none, qwen, goose, pi, aider, cline, continue, claude, opencode, codex, copilot, mini]
       screen_phase:
         description: Run the compatibility probe or score the selected fixture
         type: choice
@@ -72,7 +73,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
-        if: contains(fromJSON('["qwen","pi","cline","continue","claude"]'), inputs.screen_agent)
+        if: contains(fromJSON('["qwen","pi","cline","continue","claude","copilot"]'), inputs.screen_agent)
         with:
           node-version: '24'
           package-manager-cache: false
