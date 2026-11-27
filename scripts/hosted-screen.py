@@ -1,11 +1,14 @@
 """Run one unattended agent against the same generated read/edit/test fixture."""
 import hashlib
+import base64
 import difflib
 import http.client
 import json
 import os
 import re
+import runpy
 import secrets
+import shutil
 import socketserver
 import subprocess
 import sys
@@ -15,6 +18,10 @@ import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+TASK_ID = "root_cause.relay_request_correlation_001"
+TASK = ROOT / "tasks/engineering/root_cause/relay_request_correlation_001"
+FIXTURE_REVISION = "c7f87d835c0d7110118bd0e31655e6a223f2d735"
 ROUTES = {
     "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
                "nvidia/nemotron-3.5-super-vl-120b-a12b"),
@@ -124,20 +131,20 @@ class ProviderRequest(BaseHTTPRequestHandler):
             connection.close()
 
 
-def configure(agent, model, settings):
+def configure(agent, model, settings, prompt, score):
     env = {"PATH": "/cli/bin:/usr/bin:/bin", "HOME": "/tmp/home",
            "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "NO_COLOR": "1",
            "OPENAI_API_KEY": "local-relay", "OPENAI_BASE_URL": BASE_URL + "/v1"}
     if agent == "qwen":
         env["QWEN_CODE_DISABLE_TELEMETRY"] = "1"
         command = ["qwen", "--auth-type", "openai", "--model", model,
-                   "--approval-mode", "yolo", "--output-format", "stream-json", "-p", PROMPT]
+                   "--approval-mode", "yolo", "--output-format", "stream-json", "-p", prompt]
     elif agent == "goose":
         env.update(OPENAI_HOST=BASE_URL, OPENAI_BASE_PATH="v1/chat/completions",
                    GOOSE_PROVIDER="openai", GOOSE_MODEL=model, GOOSE_MODE="auto", GOOSE_MAX_TURNS="16",
                    GOOSE_DISABLE_KEYRING="1", GOOSE_TELEMETRY_ENABLED="false")
         command = ["goose", "run", "--no-session", "--with-builtin", "developer",
-                   "--output-format", "stream-json", "--text", PROMPT]
+                   "--output-format", "stream-json", "--text", prompt]
     elif agent == "pi":
         env.update(PI_CODING_AGENT_DIR="/tmp/home/pi", PI_TELEMETRY="0")
         (settings / "pi").mkdir()
@@ -146,7 +153,7 @@ def configure(agent, model, settings):
             "models": [{"id": model, "input": ["text"], "reasoning": False}],
         }}}))
         command = ["pi", "--provider", "screen", "--model", model, "--no-session",
-                   "--mode", "json", "--tools", "read,bash,edit,write", "--no-extensions", "-p", PROMPT]
+                   "--mode", "json", "--tools", "read,bash,edit,write", "--no-extensions", "-p", prompt]
     else:
         env["OPENAI_API_BASE"] = BASE_URL + "/v1"
         command = ["/cli/aider/bin/python", "-m", "aider", "--model", "openai/" + model,
@@ -154,8 +161,20 @@ def configure(agent, model, settings):
                    "--analytics-disable", "--yes-always", "--edit-format", "whole",
                    "--input-history-file", "/tmp/input-history",
                    "--chat-history-file", "/tmp/chat-history",
-                   "--auto-test", "--test-cmd", "probe-check", "--read", "input.txt",
-                   "--message", PROMPT, "answer.txt"]
+                   "--auto-test", "--test-cmd", "probe-check", "--message", prompt]
+        if score:
+            starter = TASK / "repo_before"
+            for path in sorted(starter.rglob("*")):
+                if path.is_file():
+                    relative = str(path.relative_to(starter))
+                    if relative.startswith("src/"):
+                        command.append(relative)
+                    else:
+                        command.extend(["--read", relative])
+            for path in sorted((TASK / "visible_tests").glob("test_*.py")):
+                command.extend(["--read", "visible_tests/" + path.name])
+        else:
+            command.extend(["--read", "input.txt", "answer.txt"])
     return env, command
 
 
@@ -182,8 +201,33 @@ def run_fixture(root, cli, agent, provider, key, evidence, record):
     (work / "answer.txt").write_bytes(baseline)
     (settings / "probe-check").write_text(CHECK)
     (settings / "probe-check").chmod(0o755)
-    env, command = configure(agent, ROUTES[provider][2], settings)
+    env, output = run_agent(root, work, settings, cli, agent, provider, key, record, PROMPT, False)
+    marker = b"SCREEN_TEST_PASS " + hashlib.sha256(identifier).hexdigest().encode()
+    record["agent_test_trace"] = marker in output
+    answer = work / "answer.txt"
+    source = work / "input.txt"
+    in_scope = (sorted(p.name for p in work.iterdir()) == ["answer.txt", "input.txt"]
+                and all(p.is_file() and not p.is_symlink() and p.stat().st_nlink == 1
+                        and p.stat().st_size < 1024 for p in (source, answer))
+                and source.read_bytes() == identifier)
+    record["in_scope"] = in_scope
+    record["patch_correct"] = in_scope and answer.read_bytes() == identifier
+    if record["patch_correct"]:
+        replay = subprocess.run(sandbox(work, cli, settings) + ["/settings/probe-check"],
+                                env=env, capture_output=True, timeout=10)
+        record["independent_test_exit"] = replay.returncode
+        (evidence / "result.patch").write_text("".join(difflib.unified_diff(
+            baseline.decode().splitlines(keepends=True),
+            identifier.decode().splitlines(keepends=True), "a/answer.txt", "b/answer.txt")))
+    return (record["clean_exit"] and record["patch_correct"] and record["agent_test_trace"]
+            and record.get("independent_test_exit") == 0)
+
+
+def run_agent(root, work, settings, cli, agent, provider, key, record, prompt, score):
+    env, command = configure(agent, ROUTES[provider][2], settings, prompt, score)
     env["PATH"] = "/settings:" + env["PATH"]
+    if score:
+        env["PYTHONPATH"] = "/task/src"
     socket = root / "upstream"
     with ProviderRelay(socket, provider, key) as relay:
         thread = threading.Thread(target=relay.serve_forever, daemon=True)
@@ -197,7 +241,7 @@ def run_fixture(root, cli, agent, provider, key, evidence, record):
                          'exec "$@"', "screen", *command])
             try:
                 result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL,
-                                        capture_output=True, timeout=90)
+                                        capture_output=True, timeout=600 if score else 90)
                 exit_code, output = result.returncode, result.stdout + result.stderr
             except subprocess.TimeoutExpired as error:
                 exit_code, output = 124, (error.stdout or b"") + (error.stderr or b"")
@@ -211,8 +255,6 @@ def run_fixture(root, cli, agent, provider, key, evidence, record):
         record["reported_models"] = sorted(relay.models)
         record["usage_by_request"] = relay.usage or None
 
-    marker = b"SCREEN_TEST_PASS " + hashlib.sha256(identifier).hexdigest().encode()
-    record["agent_test_trace"] = marker in output
     record["agent_error"] = next((label for label, pattern in {
         "unknown_option": rb"unknown (argument|option)|unexpected argument",
         "model_configuration": rb"no models available|model not found|unknown model",
@@ -221,24 +263,64 @@ def run_fixture(root, cli, agent, provider, key, evidence, record):
     }.items() if not record["upstream_requests"] and re.search(pattern, output, re.I)), None)
     record["clean_exit"] = (exit_code == 0 and bool(record["provider_statuses"])
                             and record["provider_statuses"][-1] == 200)
-    answer = work / "answer.txt"
-    source = work / "input.txt"
-    in_scope = (sorted(p.name for p in work.iterdir()) == ["answer.txt", "input.txt"]
-                and all(p.is_file() and not p.is_symlink() and p.stat().st_nlink == 1
-                        and p.stat().st_size < 1024 for p in (source, answer))
-                and source.read_bytes() == identifier)
-    record["in_scope"] = in_scope
-    record["patch_correct"] = in_scope and answer.read_bytes() == identifier
-    if record["patch_correct"]:
-        # Replay the harness-owned test in a new network-isolated namespace.
-        replay = subprocess.run(sandbox(work, cli, settings) + ["/settings/probe-check"],
-                                env=env, capture_output=True, timeout=10)
-        record["independent_test_exit"] = replay.returncode
-        (evidence / "result.patch").write_text("".join(difflib.unified_diff(
-            baseline.decode().splitlines(keepends=True),
-            identifier.decode().splitlines(keepends=True), "a/answer.txt", "b/answer.txt")))
-    return (record["clean_exit"] and record["patch_correct"] and record["agent_test_trace"]
-            and record.get("independent_test_exit") == 0)
+    return env, output
+
+
+def run_score(root, cli, agent, provider, key, evidence, record):
+    started = time.monotonic()
+    work = root / "task"
+    settings = root / "settings"
+    shutil.copytree(TASK / "repo_before", work)
+    shutil.copytree(TASK / "visible_tests", work / "visible_tests")
+    settings.mkdir()
+    shutil.copyfile(ROOT / "scripts/visible.py", settings / "visible.py")
+    check = settings / "probe-check"
+    check.write_text(
+        '#!/bin/sh\nset -e\npython3 -m unittest discover -s tests\n'
+        'python3 /settings/visible.py\n'
+    )
+    check.chmod(0o755)
+
+    baseline = root / "baseline.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(baseline)], check=True)
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "--git-dir", baseline, "--work-tree", work, *args],
+            cwd=work, stderr=subprocess.DEVNULL,
+        )
+
+    git("add", "-f", ".")
+    git("-c", "user.name=pilot", "-c", "user.email=pilot@localhost", "commit", "-qm", "fixture")
+    prompt = (TASK / "instruction.md").read_text() + "\nIndependent tests run after your edits."
+    run_agent(root, work, settings, cli, agent, provider, key, record, prompt, True)
+
+    entries = list(work.rglob("*"))
+    if any(p.is_symlink() or ".git" in p.relative_to(work).parts or
+           (not p.is_dir() and (not p.is_file() or p.stat().st_nlink != 1 or
+                                p.stat().st_size > 262144)) for p in entries):
+        record["patch_withheld"] = "unsafe_workspace_entry"
+        return False
+    git("add", "-f", ".")
+    changed = git("diff", "--cached", "--name-only", "-z", "HEAD").split(b"\0")[:-1]
+    record["candidate"] = bool(changed)
+    record["registry_only"] = changed == [b"src/relay/registry.py"]
+    if any(not path.startswith(b"src/") for path in changed):
+        record["patch_withheld"] = "non_source_changes"
+        return False
+    patch = git("diff", "--cached", "--no-ext-diff", "--text", "HEAD")
+    patch.decode("utf-8")
+    if b"\0" in patch or len(patch) > 262144 or any(marker in patch for marker in (
+        key.encode(), base64.b64encode(key.encode()), b"nvapi-", b"sk-or-", b"github_pat_",
+    )):
+        record["patch_withheld"] = "output_validation"
+        return False
+    if changed:
+        (evidence / "result.patch").write_bytes(patch)
+    public_checks = runpy.run_path(str(ROOT / "scripts/hosted-codex.py"))["public_checks"]
+    checks_ok = public_checks(work, record)
+    record["task_and_public_checks_seconds"] = round(time.monotonic() - started, 2)
+    return record["clean_exit"] and bool(changed) and checks_ok
 
 
 def main():
@@ -246,6 +328,7 @@ def main():
     evidence = temp / "evidence"
     evidence.mkdir(exist_ok=True)
     agent, provider = os.environ["SCREEN_AGENT"], os.environ["PILOT_PROVIDER"]
+    score = os.environ.get("SCREEN_PHASE") == "score"
     key = os.environ.pop("PILOT_API_KEY", "")
     record = {
         "agent": agent, "version": VERSIONS[agent], "provider": provider,
@@ -253,13 +336,19 @@ def main():
         "requested_model": ROUTES[provider][2], "adapter": "fixed-route Chat Completions relay",
         "run_id": os.environ["GITHUB_RUN_ID"], "source_revision": os.environ["GITHUB_SHA"],
         "retries": None, "actual_cost": None, "passed": False,
+        "mode": "score" if score else "probe",
     }
     try:
         if not key:
             raise ValueError("missing selected credential")
+        if score:
+            if provider != "NVIDIA":
+                raise ValueError("scored comparison uses NVIDIA")
+            record.update(task=TASK_ID, fixture_revision=FIXTURE_REVISION)
+        run = run_score if score else run_fixture
         with tempfile.TemporaryDirectory(prefix="screen-", dir=temp) as directory:
-            record["passed"] = run_fixture(Path(directory), temp / "cli", agent, provider,
-                                           key, evidence, record)
+            record["passed"] = run(Path(directory), temp / "cli", agent, provider,
+                                   key, evidence, record)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         record["harness_error"] = type(error).__name__
     finally:

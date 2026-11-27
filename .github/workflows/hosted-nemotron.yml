@@ -15,6 +15,11 @@ on:
         type: choice
         default: none
         options: [none, qwen, goose, pi, aider]
+      screen_phase:
+        description: Run the compatibility probe or score the frozen relay task
+        type: choice
+        default: probe
+        options: [probe, score]
       provider:
         description: Inference provider
         type: choice
@@ -75,9 +80,10 @@ jobs:
         env:
           SCREEN_AGENT: ${{ inputs.screen_agent }}
         run: bash scripts/install-screen-cli.sh
-      - name: Run isolated read–edit–test probe
+      - name: Run isolated agent and verify candidate
         env:
           SCREEN_AGENT: ${{ inputs.screen_agent }}
+          SCREEN_PHASE: ${{ inputs.screen_phase }}
           PILOT_PROVIDER: ${{ inputs.provider }}
           PILOT_API_KEY: ${{ secrets[inputs.provider == 'OpenRouter' && 'OPENROUTER_API_KEY' || 'NVIDIA_API_KEY'] }}
         run: python3 scripts/hosted-screen.py
