@@ -109,6 +109,8 @@ class ProviderRelay(socketserver.UnixStreamServer):
         self.usage = []
         self.request_limit = REQUEST_LIMIT
         self.local_budget_rejections = 0
+        self.transport_error_types = []
+        self.upstream_retry_after_seconds = []
         super().__init__(str(path), ProviderRequest)
 
     def observe(self, body):
@@ -167,6 +169,8 @@ class ProviderRequest(BaseHTTPRequestHandler):
             retry_after = response.getheader("Retry-After")
             if retry_after and retry_after.isdecimal():
                 self.send_header("Retry-After", retry_after)
+                if response.status == 429:
+                    self.server.upstream_retry_after_seconds.append(min(int(retry_after), 3600))
             self.end_headers()
             if "text/event-stream" in content_type:
                 for line in iter(response.readline, b""):
@@ -178,8 +182,9 @@ class ProviderRequest(BaseHTTPRequestHandler):
                 payload = response.read(2 * 1024 * 1024)
                 self.server.observe(payload)
                 self.wfile.write(payload)
-        except OSError:
-            # The recorded null status identifies a connection-level failure.
+        except OSError as error:
+            # Capture type only, not message, URL, response body or credentials.
+            self.server.transport_error_types.append(type(error).__name__)
             self.close_connection = True
         finally:
             connection.close()
@@ -374,6 +379,9 @@ def run_agent(root, work, settings, cli, agent, provider, key, record, prompt, t
         record["provider_statuses"] = relay.statuses
         record["upstream_requests"] = len(relay.statuses)
         record["local_budget_rejections"] = relay.local_budget_rejections
+        if PHASE == "diagnostic":
+            record["transport_error_types"] = relay.transport_error_types[:16]
+            record["upstream_retry_after_seconds"] = relay.upstream_retry_after_seconds[:16]
         record["reported_models"] = sorted(relay.models)
         record["usage_by_request"] = relay.usage or None
 
@@ -431,6 +439,18 @@ def run_score(root, cli, agent, provider, key, evidence, record):
     record["candidate"] = bool(changed)
     record["registry_only"] = changed == [b"src/relay/registry.py"]
     if any(not path.startswith(b"src/") for path in changed):
+        if PHASE == "diagnostic":
+            # Only filenames within known synthetic fixture roots; never file contents.
+            safe_roots = (b"tests/", b"visible_tests/", b"docs/", b"config/",
+                          b"src/", b"README.md", b"pyproject.toml")
+            record["changed_path_count"] = len(changed)
+            record["changed_paths"] = [
+                path.decode("ascii") if (
+                    len(path) <= 160 and path.startswith(safe_roots)
+                    and re.fullmatch(rb"[A-Za-z0-9._/-]+", path)
+                ) else "<redacted>"
+                for path in changed[:24]
+            ]
         record["patch_withheld"] = "non_source_changes"
         return False
     patch = git("diff", "--cached", "--no-ext-diff", "--text", "HEAD")
@@ -482,12 +502,14 @@ def main():
             raise ValueError("unsupported model/provider combination")
         if not key:
             raise ValueError("missing selected credential")
+        allowed_task = os.environ.get("SCREEN_TASK") or TASK_ID
         if diagnostic and not (
                 agent == "opencode" and provider == "NVIDIA"
-                and PROFILE in {"ultra", "lightning"}
-                and (os.environ.get("SCREEN_TASK") or TASK_ID)
-                == "root_cause.relay_request_correlation_001"):
-            raise ValueError("diagnostic is restricted to frozen root-cause OpenCode models")
+                and ((PROFILE in {"ultra", "lightning"}
+                      and allowed_task == "root_cause.relay_request_correlation_001")
+                     or (PROFILE == "minimax"
+                         and allowed_task == "feature.minimal_report_format_001"))):
+            raise ValueError("diagnostic restricted to explicitly identified tasks")
         if score:
             if provider != "NVIDIA":
                 raise ValueError("scored comparison uses NVIDIA")
