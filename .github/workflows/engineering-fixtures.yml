@@ -8,6 +8,7 @@ on:
       - '.github/workflows/hosted-nemotron.yml'
       - '.github/workflows/engineering-fixtures.yml'
       - 'tests/test_engineering_pack.py'
+      - 'tests/test_lightning_route.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,5 +20,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Verify four frozen task snapshots and no-op controls
+      - name: Verify frozen task snapshots and no-op controls
         run: python3 -m unittest discover -s tests -p test_engineering_pack.py -v
+      - name: Verify fixed model-route admission without inference
+        run: python3 -m unittest discover -s tests -p test_lightning_route.py -v
