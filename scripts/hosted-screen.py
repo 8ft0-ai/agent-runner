@@ -74,8 +74,15 @@ if PROFILE not in MODEL_PROFILES:
     raise ValueError("unsupported fixed model profile")
 ROUTES = MODEL_PROFILES[PROFILE]
 PHASE = os.environ.get("SCREEN_PHASE", "probe")
-# Diagnostic-only extension: original scored attempts remain capped at 16.
-REQUEST_LIMIT = 18 if PHASE == "diagnostic" and PROFILE in {"ultra", "lightning"} else 16
+# Normal engineering work ends on agent completion. These high ceilings are
+# last-resort circuit breakers for runaway execution, not task budgets.
+SCORED_CIRCUIT_BREAKER_REQUESTS = 128
+SCORED_CIRCUIT_BREAKER_STEPS = 128
+EXECUTION_POLICY = "circuit_breakers_v1"
+# Keep the narrow historical diagnostics separate from the new scored cohort.
+REQUEST_LIMIT = (SCORED_CIRCUIT_BREAKER_REQUESTS if PHASE == "score" else
+                 18 if PHASE == "diagnostic" and PROFILE in {"ultra", "lightning"} else 16)
+AGENT_STEP_LIMIT = SCORED_CIRCUIT_BREAKER_STEPS if PHASE == "score" else 16
 VERSIONS = {
     "qwen": "0.28.6", "goose": "1.61.1", "pi": "1.6.1", "aider": "0.86.2",
     "cline": "3.0.76", "continue": "1.5.47", "claude": "2.1.332",
@@ -333,7 +340,7 @@ def configure(agent, model, settings, prompt, task):
             OPENCODE_DISABLE_MODELS_FETCH="true", OPENCODE_DISABLE_AUTOUPDATE="true",
             OPENCODE_CONFIG_CONTENT=json.dumps({
                 "model": "pilot/" + model, "small_model": "pilot/" + model,
-                "agent": {"build": {"steps": 16}}, "enabled_providers": ["pilot"],
+                "agent": {"build": {"steps": AGENT_STEP_LIMIT}}, "enabled_providers": ["pilot"],
                 "share": "disabled",
                 "permission": {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow",
                                "edit": "allow", "bash": "allow", "external_directory": "deny"},
@@ -556,6 +563,8 @@ def main():
         "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "mode": PHASE if score else "probe",
         "request_limit": REQUEST_LIMIT,
+        "agent_step_limit": AGENT_STEP_LIMIT if agent == "opencode" else None,
+        "execution_policy": EXECUTION_POLICY if PHASE == "score" else "legacy_diagnostic",
     }
     if agent in {"claude", "codex"}:
         record["adapter"] = ("SkillEvaluator Messages-to-Chat-Completions + fixed relay" if agent == "claude"
