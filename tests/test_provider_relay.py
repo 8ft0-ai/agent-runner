@@ -119,6 +119,42 @@ class RelayTests(TestCase):
         self.assertEqual(handler.server.local_budget_rejections, 1)
         handler.send_error.assert_called_once_with(429)
 
+    def test_scored_limits_are_circuit_breakers_not_sixteen_step_budgets(self):
+        with mock.patch.dict(os.environ, {
+            "SCREEN_PHASE": "score", "PILOT_MODEL_PROFILE": "ultra",
+        }):
+            scope = runpy.run_path(str(SCRIPT))
+        self.assertEqual(scope["REQUEST_LIMIT"], 128)
+        self.assertEqual(scope["AGENT_STEP_LIMIT"], 128)
+        self.assertEqual(scope["EXECUTION_POLICY"], "circuit_breakers_v1")
+        env, _command = scope["configure"](
+            "opencode", "nvidia/nemotron-3-ultra-550b-a55b",
+            Path("."), "test prompt", Path("."))
+        config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
+        self.assertEqual(config["agent"]["build"]["steps"], 128)
+
+    def test_historical_diagnostics_remain_outside_new_cohort(self):
+        with mock.patch.dict(os.environ, {
+            "SCREEN_PHASE": "diagnostic", "PILOT_MODEL_PROFILE": "ultra",
+        }):
+            scope = runpy.run_path(str(SCRIPT))
+        self.assertEqual(scope["REQUEST_LIMIT"], 18)
+        self.assertEqual(scope["AGENT_STEP_LIMIT"], 16)
+
+    def test_circuit_breaker_stops_at_128_not_on_the_sixteenth_request(self):
+        handler, connection, queue = self.handler([FakeResponse(200)])
+        handler.server.request_limit = 128
+        handler.server.statuses = [200] * 127
+        with mock.patch.object(module.http.client, "HTTPSConnection", connection):
+            handler.do_POST()
+        self.assertEqual(len(handler.server.statuses), 128)
+        self.assertFalse(handler.server.budget_exhausted.is_set())
+        handler.do_POST()
+        self.assertEqual(handler.server.local_budget_rejections, 1)
+        self.assertTrue(handler.server.budget_exhausted.is_set())
+        self.assertEqual(len(handler.server.statuses), 128)
+        handler.send_error.assert_called_once_with(429)
+
     def test_process_group_stops_after_budget_event(self):
         event = threading.Event()
         ready = threading.Timer(0.1, event.set)
