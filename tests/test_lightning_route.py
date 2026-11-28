@@ -9,15 +9,16 @@ import unittest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/hosted-screen.py"
 INSPECT = (
     "import json,runpy; m=runpy.run_path(" + repr(str(SCRIPT)) + "); "
-    "print(json.dumps({'profile':m['PROFILE'],'routes':m['ROUTES']}))"
+    "print(json.dumps({'profile':m['PROFILE'],'routes':m['ROUTES'],'limit':m['REQUEST_LIMIT']}))"
 )
 
 
 class FixedModelRoutes(unittest.TestCase):
-    def run_profile(self, profile):
+    def run_profile(self, profile, phase=None):
         env = os.environ.copy()
         env.pop("PILOT_API_KEY", None)
         env.pop("NVIDIA_API_KEY", None)
+        env["SCREEN_PHASE"] = phase or "probe"
         if profile is None:
             env.pop("PILOT_MODEL_PROFILE", None)
         else:
@@ -48,7 +49,7 @@ class FixedModelRoutes(unittest.TestCase):
         expected = {
             "minimax": "minimaxai/minimax-m3.1-flash",
             "ultra": "nvidia/nemotron-3-ultra-550b-a55b",
-            "bolt": "stg/nvidia/nemotron-3.5-bolt-e4b",
+            "bolt": "nvidia/nemotron-3.5-bolt-e4b",
         }
         for profile, model in expected.items():
             with self.subTest(profile=profile):
@@ -58,6 +59,21 @@ class FixedModelRoutes(unittest.TestCase):
                 self.assertEqual(set(result["routes"]), {"NVIDIA"})
                 self.assertEqual(result["routes"]["NVIDIA"],
                                  ["integrate.api.nvidia.com", "/v1/chat/completions", model])
+
+    def test_scored_budget_is_unchanged_for_all_profiles(self):
+        for profile in ("super", "minimax", "ultra", "lightning", "bolt"):
+            with self.subTest(profile=profile):
+                result = self.run_profile(profile, "score")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)["limit"], 16)
+
+    def test_diagnostic_budget_only_extends_two_models(self):
+        for profile in ("super", "minimax", "ultra", "lightning", "bolt"):
+            with self.subTest(profile=profile):
+                result = self.run_profile(profile, "diagnostic")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)["limit"],
+                                 18 if profile in ("ultra", "lightning") else 16)
 
     def test_unlisted_profile_fails_closed(self):
         completed = self.run_profile("nvidia/other-paid")
