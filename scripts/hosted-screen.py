@@ -51,6 +51,19 @@ MODEL_PROFILES = {
         "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
                    "nvidia/nemotron-3.5-lightning-30b-a3b"),
     },
+    "minimax": {
+        "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
+                   "minimaxai/minimax-m3.1-flash"),
+    },
+    "ultra": {
+        "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
+                   "nvidia/nemotron-3-ultra-550b-a55b"),
+    },
+    "bolt": {
+        # The standalone gateway documents a staging-prefixed ID for Bolt.
+        "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
+                   "stg/nvidia/nemotron-3.5-bolt-e4b"),
+    },
 }
 PROFILE = os.environ.get("PILOT_MODEL_PROFILE", "super")
 if PROFILE not in MODEL_PROFILES:
