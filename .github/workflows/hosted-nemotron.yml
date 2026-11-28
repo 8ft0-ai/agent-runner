@@ -40,6 +40,10 @@ on:
         options:
           - NVIDIA
           - OpenRouter
+      rate_probe:
+        description: One-off sequential rate observation (not scored)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -47,7 +51,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   pilot:
-    if: inputs.screen_agent == 'none' || inputs.screen_agent == ''
+    if: (inputs.screen_agent == 'none' || inputs.screen_agent == '') && inputs.rate_probe != true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -76,7 +80,7 @@ jobs:
           retention-days: 5
           if-no-files-found: error
   screen:
-    if: inputs.screen_agent != 'none' && inputs.screen_agent != ''
+    if: inputs.screen_agent != 'none' && inputs.screen_agent != '' && inputs.rate_probe != true
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -106,5 +110,27 @@ jobs:
         with:
           name: screen-${{ inputs.screen_agent }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/evidence
+          retention-days: 5
+          if-no-files-found: warn
+
+  rate_probe:
+    if: inputs.rate_probe == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fixed spaced NVIDIA API diagnostic (no scoring)
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          python3 -m py_compile scripts/nvidia-rate-observe.py
+          python3 scripts/nvidia-rate-observe.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rate-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rate-diagnostic
           retention-days: 5
           if-no-files-found: warn
