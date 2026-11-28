@@ -2,11 +2,14 @@
 import hashlib
 import base64
 import difflib
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import http.client
 import json
 import os
 import re
 import runpy
+import signal
 import secrets
 import shutil
 import socketserver
@@ -96,6 +99,60 @@ print(marker)
 """
 BASE_URL = "http://127.0.0.1:8017"
 SAFE_MODEL = re.compile(r"[a-zA-Z0-9._:/-]{1,160}")
+TRANSIENT_STATUSES = {429, 503}
+MAX_TRANSIENT_RETRIES = 2
+MAX_RETRY_WAIT_SECONDS = 8
+
+
+def transient_retry_delay(status, retry_after, attempt_index):
+    """Bounded server-directed backoff; None means do not retry."""
+    if status not in TRANSIENT_STATUSES or attempt_index >= MAX_TRANSIENT_RETRIES:
+        return None
+    if retry_after is None:
+        return float(2 ** attempt_index)
+    if retry_after.isdecimal():
+        seconds = int(retry_after[:10]) if len(retry_after) <= 10 else MAX_RETRY_WAIT_SECONDS + 1
+    else:
+        try:
+            when = parsedate_to_datetime(retry_after)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            seconds = max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return float(seconds) if seconds <= MAX_RETRY_WAIT_SECONDS else None
+
+
+def run_with_budget(args, env, budget_event, timeout):
+    """Stop an agent process group after its first attempted over-budget call."""
+    with subprocess.Popen(args, env=env, stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          start_new_session=True) as process:
+        started = time.monotonic()
+        while True:
+            remaining = timeout - (time.monotonic() - started)
+            reason = ("request_budget_exhausted" if budget_event.is_set()
+                      else "agent_timeout" if remaining <= 0 else None)
+            if reason is None:
+                try:
+                    output, _ = process.communicate(timeout=min(0.5, remaining))
+                    return process.returncode, output, None
+                except subprocess.TimeoutExpired:
+                    continue
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            try:
+                output, _ = process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                output, _ = process.communicate()
+            return (125 if reason == "request_budget_exhausted" else 124), output, reason
 
 
 class ProviderRelay(socketserver.UnixStreamServer):
@@ -109,6 +166,10 @@ class ProviderRelay(socketserver.UnixStreamServer):
         self.usage = []
         self.request_limit = REQUEST_LIMIT
         self.local_budget_rejections = 0
+        self.budget_exhausted = threading.Event()
+        self.transient_retries = 0
+        self.retry_wait_seconds = []
+        self.transport_error_types = []
         super().__init__(str(path), ProviderRequest)
 
     def observe(self, body):
@@ -139,6 +200,7 @@ class ProviderRequest(BaseHTTPRequestHandler):
             return
         if len(self.server.statuses) >= self.server.request_limit:
             self.server.local_budget_rejections += 1
+            self.server.budget_exhausted.set()
             self.send_error(429)
             return
         try:
@@ -153,36 +215,54 @@ class ProviderRequest(BaseHTTPRequestHandler):
             self.send_error(400)
             return
 
-        connection = http.client.HTTPSConnection(self.server.host, timeout=35)
-        self.server.statuses.append(None)
-        try:
-            connection.request("POST", self.server.endpoint, json.dumps(body), {
-                "Content-Type": "application/json", "Authorization": "Bearer " + self.server.key,
-            })
-            response = connection.getresponse()
-            self.server.statuses[-1] = response.status
-            content_type = response.getheader("Content-Type", "")
-            self.send_response(response.status)
-            self.send_header("Content-Type", content_type)
-            retry_after = response.getheader("Retry-After")
-            if retry_after and retry_after.isdecimal():
-                self.send_header("Retry-After", retry_after)
-            self.end_headers()
-            if "text/event-stream" in content_type:
-                for line in iter(response.readline, b""):
-                    if line.startswith(b"data:"):
-                        self.server.observe(line[5:])
-                    self.wfile.write(line)
-                    self.wfile.flush()
-            else:
-                payload = response.read(2 * 1024 * 1024)
-                self.server.observe(payload)
-                self.wfile.write(payload)
-        except OSError:
-            # The recorded null status identifies a connection-level failure.
-            self.close_connection = True
-        finally:
-            connection.close()
+        for attempt in range(MAX_TRANSIENT_RETRIES + 1):
+            if len(self.server.statuses) >= self.server.request_limit:
+                self.server.local_budget_rejections += 1
+                self.server.budget_exhausted.set()
+                self.send_error(429)
+                return
+            connection = http.client.HTTPSConnection(self.server.host, timeout=35)
+            self.server.statuses.append(None)  # Every upstream attempt consumes one slot.
+            try:
+                connection.request("POST", self.server.endpoint, json.dumps(body), {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + self.server.key,
+                })
+                response = connection.getresponse()
+                self.server.statuses[-1] = response.status
+                retry_after = response.getheader("Retry-After")
+                delay = transient_retry_delay(response.status, retry_after, attempt)
+                if delay is not None and len(self.server.statuses) < self.server.request_limit:
+                    # Discard transient response bytes without exposing provider diagnostics.
+                    response.read(2 * 1024 * 1024)
+                    self.server.transient_retries += 1
+                    self.server.retry_wait_seconds.append(round(delay, 2))
+                    time.sleep(delay)
+                    continue
+                content_type = response.getheader("Content-Type", "")
+                self.send_response(response.status)
+                self.send_header("Content-Type", content_type)
+                if retry_after:
+                    self.send_header("Retry-After", retry_after[:128])
+                self.end_headers()
+                if "text/event-stream" in content_type:
+                    for line in iter(response.readline, b""):
+                        if line.startswith(b"data:"):
+                            self.server.observe(line[5:])
+                        self.wfile.write(line)
+                        self.wfile.flush()
+                else:
+                    payload = response.read(2 * 1024 * 1024)
+                    self.server.observe(payload)
+                    self.wfile.write(payload)
+                return
+            except OSError as error:
+                # Type only, never response bodies or credential-bearing messages.
+                self.server.transport_error_types.append(type(error).__name__)
+                self.close_connection = True
+                return
+            finally:
+                connection.close()
 
 
 def configure(agent, model, settings, prompt, task):
@@ -360,20 +440,21 @@ def run_agent(root, work, settings, cli, agent, provider, key, record, prompt, t
         try:
             args = sandbox(work, cli, settings, "--ro-bind", str(socket), "/upstream", *mounts)
             args.extend(["/bin/sh", "/settings/launch.sh", *command])
-            try:
-                result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL,
-                                        capture_output=True, timeout=600 if task else 90)
-                exit_code, output = result.returncode, result.stdout + result.stderr
-            except subprocess.TimeoutExpired as error:
-                exit_code, output = 124, (error.stdout or b"") + (error.stderr or b"")
+            exit_code, output, termination = run_with_budget(
+                args, env, relay.budget_exhausted, 600 if task else 90)
             record["agent_exit"] = exit_code
             record["agent_duration_seconds"] = round(time.monotonic() - start, 2)
+            if termination:
+                record["termination_reason"] = termination
         finally:
             relay.shutdown()
             thread.join()
         record["provider_statuses"] = relay.statuses
         record["upstream_requests"] = len(relay.statuses)
         record["local_budget_rejections"] = relay.local_budget_rejections
+        record["transient_retries"] = relay.transient_retries
+        record["retry_wait_seconds"] = relay.retry_wait_seconds
+        record["transport_failure_types"] = relay.transport_error_types[:16]
         record["reported_models"] = sorted(relay.models)
         record["usage_by_request"] = relay.usage or None
 
@@ -430,7 +511,9 @@ def run_score(root, cli, agent, provider, key, evidence, record):
     changed = git("diff", "--cached", "--name-only", "-z", "HEAD").split(b"\0")[:-1]
     record["candidate"] = bool(changed)
     record["registry_only"] = changed == [b"src/relay/registry.py"]
-    if any(not path.startswith(b"src/") for path in changed):
+    outside_source = sum(not path.startswith(b"src/") for path in changed)
+    if outside_source:
+        record["non_source_change_count"] = outside_source
         record["patch_withheld"] = "non_source_changes"
         return False
     patch = git("diff", "--cached", "--no-ext-diff", "--text", "HEAD")
@@ -502,6 +585,21 @@ def main():
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         record["harness_error"] = type(error).__name__
     finally:
+        statuses = record.get("provider_statuses") or []
+        categories = []
+        if any(s in TRANSIENT_STATUSES for s in statuses):
+            categories.append("upstream_transient")
+        if any(s is None for s in statuses):
+            categories.append("upstream_transport")
+        if record.get("termination_reason") == "request_budget_exhausted":
+            categories.append("local_budget_exhausted")
+        if record.get("patch_withheld"):
+            categories.append("source_rejected")
+        if record.get("harness_error"):
+            categories.append("harness_error")
+        if not record.get("clean_exit", False) and not categories:
+            categories.append("agent_nonzero_exit")
+        record["failure_categories"] = categories
         (evidence / "run.json").write_text(json.dumps(record, indent=2) + "\n")
     return 0 if record["passed"] else 1
 
