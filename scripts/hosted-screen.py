@@ -514,6 +514,23 @@ def run_score(root, cli, agent, provider, key, evidence, record):
     outside_source = sum(not path.startswith(b"src/") for path in changed)
     if outside_source:
         record["non_source_change_count"] = outside_source
+        if PHASE == "diagnostic":
+            # Filename-only evidence for one frozen public synthetic fixture.
+            # Source contents, diff and arbitrary untrusted path names stay private.
+            safe_prefixes = (
+                b"tests/", b"visible_tests/", b"docs/", b"config/",
+                b"README.md", b"pyproject.toml", b".pytest_cache/",
+                b".coverage", b".gitignore", b"status.json",
+            )
+            record["non_source_paths"] = [
+                path.decode("ascii") if (
+                    len(path) <= 120 and path.startswith(safe_prefixes)
+                    and re.fullmatch(rb"[a-zA-Z0-9._/-]{1,120}", path)
+                    and not any(s in path.lower() for s in (
+                        b"token", b"secret", b"password", b"credential", b"key-"))
+                ) else "<redacted>"
+                for path in changed if not path.startswith(b"src/")
+            ][:12]
         record["patch_withheld"] = "non_source_changes"
         return False
     patch = git("diff", "--cached", "--no-ext-diff", "--text", "HEAD")
@@ -565,12 +582,14 @@ def main():
             raise ValueError("unsupported model/provider combination")
         if not key:
             raise ValueError("missing selected credential")
+        task_for_diagnostic = os.environ.get("SCREEN_TASK") or TASK_ID
         if diagnostic and not (
                 agent == "opencode" and provider == "NVIDIA"
-                and PROFILE in {"ultra", "lightning"}
-                and (os.environ.get("SCREEN_TASK") or TASK_ID)
-                == "root_cause.relay_request_correlation_001"):
-            raise ValueError("diagnostic is restricted to frozen root-cause OpenCode models")
+                and ((PROFILE in {"ultra", "lightning"}
+                      and task_for_diagnostic == "root_cause.relay_request_correlation_001")
+                     or (PROFILE == "minimax"
+                         and task_for_diagnostic == "feature.minimal_report_format_001"))):
+            raise ValueError("diagnostic is restricted to explicitly approved frozen tasks")
         if score:
             if provider != "NVIDIA":
                 raise ValueError("scored comparison uses NVIDIA")
