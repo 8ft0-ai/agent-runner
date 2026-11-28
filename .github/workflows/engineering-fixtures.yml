@@ -9,6 +9,7 @@ on:
       - '.github/workflows/engineering-fixtures.yml'
       - 'tests/test_engineering_pack.py'
       - 'tests/test_lightning_route.py'
+      - 'tests/test_provider_relay.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,3 +25,5 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_engineering_pack.py -v
       - name: Verify fixed model-route admission without inference
         run: python3 -m unittest discover -s tests -p test_lightning_route.py -v
+      - name: Verify bounded relay backoff and budget stop without inference
+        run: python3 -m unittest discover -s tests -p test_provider_relay.py -v
