@@ -35,3 +35,13 @@ At most three primary pilots on the same root-cause task. Only successful, indep
 4. Pilot outcome gates further attempts. Public artefacts expire after five days: preserve important evidence privately within their retention window.
 
 **Status:** public route identifiers documented; operational access, free quota, observed model identity and runtime tool compatibility not yet established.
+
+## Follow-up diagnostics (28 November 2026; not part of frozen scored cohort)
+
+The first live root-cause task generated 90/90 patches for Super, MiniMax, Ultra and Lightning. Ultra and Lightning exited with code 1 at the original 16-upstream-request ceiling, despite all upstream requests returning 200. A further investigation may distinguish the local 429 budget gate from model failure; no first-pass scores may be replaced.
+
+The `diagnostic` phase, restricted to OpenCode, NVIDIA, the root-cause task and Ultra/Lightning, permits **18 upstream calls** without changing `score` mode's 16-call ceiling or the canonical evaluator. The runner records `request_limit` and `local_budget_rejections`; a diagnostic run is not admitted by the private grader and must not enter the eight-task scoreboard.
+
+The Bolt staging-prefixed one-probe route `stg/nvidia/nemotron-3.5-bolt-e4b` returned HTTP 404 twice. This branch tests the **unprefixed** Build playground ID `nvidia/nemotron-3.5-bolt-e4b` in exactly one additional explicitly authorised diagnostic probe. A failed probe remains HOLD without repeated trials. Model availability and free-tier behaviour are not inferred from documentation.
+
+Super's requested `nvidia/nemotron-3.5-super-vl-120b-a12b` returned `private/nvidia/nemotron-3.5-super-120b-a12b`. Public developer forum reports describe the same mismatch but do not attest equivalence. The result remains identity-unverified pending an authoritative provider confirmation.
