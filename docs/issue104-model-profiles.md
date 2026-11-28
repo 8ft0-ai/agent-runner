@@ -45,3 +45,11 @@ The `diagnostic` phase, restricted to OpenCode, NVIDIA, the root-cause task and 
 The Bolt staging-prefixed one-probe route `stg/nvidia/nemotron-3.5-bolt-e4b` returned HTTP 404 twice. This branch tests the **unprefixed** Build playground ID `nvidia/nemotron-3.5-bolt-e4b` in exactly one additional explicitly authorised diagnostic probe. A failed probe remains HOLD without repeated trials. Model availability and free-tier behaviour are not inferred from documentation.
 
 Super's requested `nvidia/nemotron-3.5-super-vl-120b-a12b` returned `private/nvidia/nemotron-3.5-super-120b-a12b`. Public developer forum reports describe the same mismatch but do not attest equivalence. The result remains identity-unverified pending an authoritative provider confirmation.
+
+### Verified diagnostic outcomes
+
+- **Ultra:** [run 46105182223](https://github.com/8ft0-ai/agent-runner/actions/runs/46105182223) — GitHub Actions SUCCESS, clean exit, public checks passed, 15/18 upstream calls HTTP 200, zero local limit rejections, 41.08 s.
+- **Lightning:** [run 46105196267](https://github.com/8ft0-ai/agent-runner/actions/runs/46105196267) — GitHub Actions SUCCESS, clean exit, public checks passed, 14/18 upstream calls HTTP 200, zero local limit rejections, 35.40 s.
+- **Bolt:** [run 46105311362](https://github.com/8ft0-ai/agent-runner/actions/runs/46105311362) — unprefixed NVIDIA gateway route SUCCESS, 11/11 upstream calls HTTP 200, exact reported model ID, clean exit, independent compatibility check passed, 13.99 s.
+
+**Interpretation:** Ultra and Lightning completed within the **original 16-request allowance** in these new attempts; raising their diagnostic ceiling to 18 was *not necessary in these particular executions*. This supports run-to-run variation, not proof that the original budget caused the prior failure. Do not retroactively change the original first-pass run outcomes. Bolt's routing problem is fixed for the observed NVIDIA account; the alternate ID is a compatibility correction, not a new benchmark score.
