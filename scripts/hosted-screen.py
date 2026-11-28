@@ -60,15 +60,19 @@ MODEL_PROFILES = {
                    "nvidia/nemotron-3-ultra-550b-a55b"),
     },
     "bolt": {
-        # The standalone gateway documents a staging-prefixed ID for Bolt.
+        # Diagnostic: test the unprefixed Build playground model ID after the
+        # accepted one-probe staging route returned HTTP 404.
         "NVIDIA": ("integrate.api.nvidia.com", "/v1/chat/completions",
-                   "stg/nvidia/nemotron-3.5-bolt-e4b"),
+                   "nvidia/nemotron-3.5-bolt-e4b"),
     },
 }
 PROFILE = os.environ.get("PILOT_MODEL_PROFILE", "super")
 if PROFILE not in MODEL_PROFILES:
     raise ValueError("unsupported fixed model profile")
 ROUTES = MODEL_PROFILES[PROFILE]
+PHASE = os.environ.get("SCREEN_PHASE", "probe")
+# Diagnostic-only extension: original scored attempts remain capped at 16.
+REQUEST_LIMIT = 18 if PHASE == "diagnostic" and PROFILE in {"ultra", "lightning"} else 16
 VERSIONS = {
     "qwen": "0.28.6", "goose": "1.61.1", "pi": "1.6.1", "aider": "0.86.2",
     "cline": "3.0.76", "continue": "1.5.47", "claude": "2.1.332",
@@ -103,6 +107,8 @@ class ProviderRelay(socketserver.UnixStreamServer):
         self.statuses = []
         self.models = set()
         self.usage = []
+        self.request_limit = REQUEST_LIMIT
+        self.local_budget_rejections = 0
         super().__init__(str(path), ProviderRequest)
 
     def observe(self, body):
@@ -131,7 +137,8 @@ class ProviderRequest(BaseHTTPRequestHandler):
         if self.path != "/v1/chat/completions":
             self.send_error(404)
             return
-        if len(self.server.statuses) >= 16:
+        if len(self.server.statuses) >= self.server.request_limit:
+            self.server.local_budget_rejections += 1
             self.send_error(429)
             return
         try:
@@ -366,6 +373,7 @@ def run_agent(root, work, settings, cli, agent, provider, key, record, prompt, t
             thread.join()
         record["provider_statuses"] = relay.statuses
         record["upstream_requests"] = len(relay.statuses)
+        record["local_budget_rejections"] = relay.local_budget_rejections
         record["reported_models"] = sorted(relay.models)
         record["usage_by_request"] = relay.usage or None
 
@@ -449,7 +457,8 @@ def main():
     evidence = temp / "evidence"
     evidence.mkdir(exist_ok=True)
     agent, provider = os.environ["SCREEN_AGENT"], os.environ["PILOT_PROVIDER"]
-    score = os.environ.get("SCREEN_PHASE") == "score"
+    diagnostic = PHASE == "diagnostic"
+    score = PHASE in {"score", "diagnostic"}
     key = os.environ.pop("PILOT_API_KEY", "")
     selected_route = ROUTES.get(provider)
     record = {
@@ -462,7 +471,8 @@ def main():
         "retries": None, "actual_cost": None, "passed": False,
         "human_interventions": 0, "tool_calls": None,
         "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
-        "mode": "score" if score else "probe",
+        "mode": PHASE if score else "probe",
+        "request_limit": REQUEST_LIMIT,
     }
     if agent in {"claude", "codex"}:
         record["adapter"] = ("SkillEvaluator Messages-to-Chat-Completions + fixed relay" if agent == "claude"
@@ -472,6 +482,12 @@ def main():
             raise ValueError("unsupported model/provider combination")
         if not key:
             raise ValueError("missing selected credential")
+        if diagnostic and not (
+                agent == "opencode" and provider == "NVIDIA"
+                and PROFILE in {"ultra", "lightning"}
+                and (os.environ.get("SCREEN_TASK") or TASK_ID)
+                == "root_cause.relay_request_correlation_001"):
+            raise ValueError("diagnostic is restricted to frozen root-cause OpenCode models")
         if score:
             if provider != "NVIDIA":
                 raise ValueError("scored comparison uses NVIDIA")
