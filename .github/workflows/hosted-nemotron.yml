@@ -28,10 +28,10 @@ on:
         default: probe
         options: [probe, score]
       screen_model:
-        description: Fixed model profile for optional agent screen (NVIDIA Lightning requires NVIDIA)
+        description: Fixed model profile for optional agent screen (new profiles use NVIDIA only)
         type: choice
         default: super
-        options: [super, lightning]
+        options: [super, lightning, minimax, ultra, bolt]
       provider:
         description: Inference provider
         type: choice
