@@ -283,7 +283,7 @@ def configure(agent, model, settings, prompt, task):
                    "--approval-mode", "yolo", "--output-format", "stream-json", "-p", prompt]
     elif agent == "goose":
         env.update(OPENAI_HOST=BASE_URL, OPENAI_BASE_PATH="v1/chat/completions",
-                   GOOSE_PROVIDER="openai", GOOSE_MODEL=model, GOOSE_MODE="auto", GOOSE_MAX_TURNS="16",
+                   GOOSE_PROVIDER="openai", GOOSE_MODEL=model, GOOSE_MODE="auto", GOOSE_MAX_TURNS=str(AGENT_STEP_LIMIT),
                    GOOSE_DISABLE_KEYRING="1", GOOSE_TELEMETRY_ENABLED="false")
         command = ["goose", "run", "--no-session", "--with-builtin", "developer",
                    "--output-format", "stream-json", "--text", prompt]
@@ -329,7 +329,7 @@ def configure(agent, model, settings, prompt, task):
     elif agent == "mini":
         env.update(MSWEA_CONFIGURED="1", MSWEA_SILENT_STARTUP="1",
                    MSWEA_COST_TRACKING="ignore_errors", LITELLM_LOCAL_MODEL_COST_MAP="True")
-        config = {"agent": {"step_limit": 16},
+        config = {"agent": {"step_limit": AGENT_STEP_LIMIT},
                   "model": {"model_kwargs": {"api_base": BASE_URL + "/v1", "num_retries": 0}}}
         (settings / "mini.yaml").write_text(json.dumps(config))
         command = ["/cli/mini/bin/python", "-m", "minisweagent.run.mini", "-m", "openai/" + model,
@@ -563,7 +563,7 @@ def main():
         "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "mode": PHASE if score else "probe",
         "request_limit": REQUEST_LIMIT,
-        "agent_step_limit": AGENT_STEP_LIMIT if agent == "opencode" else None,
+        "agent_step_limit": AGENT_STEP_LIMIT if agent in {"opencode", "goose", "mini"} else None,
         "execution_policy": EXECUTION_POLICY if PHASE == "score" else "legacy_diagnostic",
     }
     if agent in {"claude", "codex"}:

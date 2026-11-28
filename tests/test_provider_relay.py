@@ -5,6 +5,7 @@ import os
 import runpy
 import sys
 import threading
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
@@ -132,6 +133,14 @@ class RelayTests(TestCase):
             Path("."), "test prompt", Path("."))
         config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
         self.assertEqual(config["agent"]["build"]["steps"], 128)
+
+        # Previous internal 16-turn caps on Goose/mini distorted clean completion.
+        with tempfile.TemporaryDirectory() as folder:
+            settings = Path(folder)
+            goose_env, _ = scope["configure"]("goose", "model", settings, "test", settings)
+            self.assertEqual(goose_env["GOOSE_MAX_TURNS"], "128")
+            _mini_env, _ = scope["configure"]("mini", "model", settings, "test", settings)
+            self.assertEqual(json.loads((settings / "mini.yaml").read_text())["agent"]["step_limit"], 128)
 
     def test_historical_diagnostics_remain_outside_new_cohort(self):
         with mock.patch.dict(os.environ, {
