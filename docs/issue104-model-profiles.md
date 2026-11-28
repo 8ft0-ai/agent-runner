@@ -63,3 +63,19 @@ The corrected runner retries an upstream **HTTP 429 or 503 at most twice within 
 After the first *local* over-budget model request the runner records the budget rejection and terminates the isolated agent process group, preventing repeated local 429 loops. It records separate bounded fields for provider statuses, transport exception types, upstream retry count and delay, budget exhaustion, and patch withholding. It does not persist provider bodies, prompts, credentials, hidden grading data or arbitrary agent paths. The **600-second agent timeout** and the canonical private grading evaluator are unchanged.
 
 These are changes to the execution policy for future #104 runs, not corrections to prior immutable results. Comparisons must record the runner SHA and treat earlier raw-provider-error attempts as a distinct execution-policy cohort. No live model rerun should occur until the new runner SHA has been admitted by the private grader after independent CI and parity validation.
+
+## Prospective circuit-breaker-only execution policy (after the 16-call comparison)
+
+The accepted #104 historical receipts above remain frozen: their runner revisions, 16 upstream calls, 16 OpenCode steps, private grades and clean/unclean exits are **not changed**.
+
+For **new** `score` mode runs, normal completion is determined by the agent exiting with an admissible source-only patch and passing checks, **not by meeting a small artificial call or step quota**. The high hard-stop bounds are:
+
+- 128 actual upstream attempts (including retries and failed provider responses).
+- 128 OpenCode build steps, independently from upstream attempt accounting.
+- Existing 600-second agent wall-clock limit and 20-minute GitHub workflow timeout.
+- One concurrent public run; all model endpoints fixed and free NVIDIA-hosted only.
+- The existing at-most-two bounded retries for each upstream HTTP 429/503 remain; do not retry wrong-but-valid candidates.
+
+The 128/128 limits are *last-resort circuit breakers*, not targets or task-level performance goals. A limit hit is reported as **incomplete autonomous execution**, separately from the independent mechanical correctness score of any admissible patch. Source allowlists, credential isolation and private hidden tests remain unchanged.
+
+New receipts explicitly identify `execution_policy=circuit_breakers_v1`, `agent_step_limit=128`, `request_limit=128` and the exact runner revision. The private grader must admit that **immutable revision** and attest these fields before any new scored runs. Do not compare raw completion rates against the original 16/16 cohort without labelling the changed policy. A model/route returning repeated provider 429s remains an infrastructure reliability problem, not automatically poor code correctness.
