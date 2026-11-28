@@ -60,12 +60,12 @@ class FixedModelRoutes(unittest.TestCase):
                 self.assertEqual(result["routes"]["NVIDIA"],
                                  ["integrate.api.nvidia.com", "/v1/chat/completions", model])
 
-    def test_scored_budget_is_unchanged_for_all_profiles(self):
+    def test_scored_request_circuit_breaker_applies_to_all_profiles(self):
         for profile in ("super", "minimax", "ultra", "lightning", "bolt"):
             with self.subTest(profile=profile):
                 result = self.run_profile(profile, "score")
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(json.loads(result.stdout)["limit"], 16)
+                self.assertEqual(json.loads(result.stdout)["limit"], 128)
 
     def test_diagnostic_budget_only_extends_two_models(self):
         for profile in ("super", "minimax", "ultra", "lightning", "bolt"):
