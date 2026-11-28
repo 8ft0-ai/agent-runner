@@ -39,7 +39,7 @@ def allowlisted_headers(response):
     for name, value in response.getheaders():
         name = name.lower().strip()
         if name in HEADER_ALLOWLIST and len(value) <= 100 and re.fullmatch(
-                r"[0-9A-Za-z.,: +\\-_/]+", value):
+                r"[0-9A-Za-z.,: +/=_-]+", value):
             result[name] = value
     return result
 
